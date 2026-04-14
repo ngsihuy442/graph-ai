@@ -2,9 +2,10 @@ Mở Terminal (PowerShell) ngay tại thư mục gốc của dự án đang code
 
 
 git clone https://github.com/ngsihuy442/graph-ai.git temp-mcp
-Get-ChildItem -Path temp-mcp -Force -Exclude .git | Move-Item -Destination . -Force
+Move-Item -Path temp-mcp\.mcp -Destination . -Force
+Move-Item -Path temp-mcp\.antigravity -Destination . -Force
 Remove-Item -Path temp-mcp -Recurse -Force
-npm install
+npm install @modelcontextprotocol/sdk
 
 
 ⚙️ Cấu hình Danh tính (Chỉ làm 1 lần)
