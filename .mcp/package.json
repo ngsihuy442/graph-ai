@@ -1,0 +1,7 @@
+{
+  "name": "antigravity-mcp-server",
+  "type": "module",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "latest"
+  }
+}

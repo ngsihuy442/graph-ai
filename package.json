@@ -1,0 +1,8 @@
+{
+  "name": "graph-ai",
+  "version": "1.0.0",
+  "scripts": {
+    "install-mcp": "cd .mcp && npm install",
+    "postinstall": "npm run install-mcp"
+  }
+}
