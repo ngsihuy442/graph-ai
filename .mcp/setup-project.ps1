@@ -98,3 +98,15 @@ try {
 Write-Host "`n=== Hoàn tất! ===" -ForegroundColor Cyan
 Write-Host "Mở IDE tại: $ProjectDir"
 Write-Host "Sau đó Restart IDE để load .cursorrules mới.`n"
+
+# 5. Dọn dẹp tệp tin không cần thiết (Bảo mật & Gọn nhẹ)
+Write-Host "[5] Đang dọn dẹp các tệp cài đặt tạm..." -ForegroundColor Yellow
+$cleanupFiles = @("package.json", "package-lock.json")
+foreach ($f in $cleanupFiles) {
+    $p = Join-Path $mcpTarget $f
+    if (Test-Path $p) { Remove-Item $p -Force }
+}
+
+# Tự xóa chính mình
+Write-Host "  ✓ Đã dọn dẹp xong. Kịch bản này sẽ tự hủy.`n" -ForegroundColor Green
+Remove-Item $PSCommandPath -Force
