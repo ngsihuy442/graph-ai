@@ -1,1 +1,17 @@
-node_modules
+﻿# Dependencies
+node_modules/
+vendor/
+
+# Antigravity config (sensitive - contains token)
+.antigravity
+*.bak
+
+# Generated files
+.cursorrules
+.antigravity-graph.json
+.mcp/graph.json
+.mcp/.antigravity
+
+# Logs & OS
+error_log
+.DS_Store
