@@ -1,7 +1,11 @@
-const fs    = require('fs');
-const path  = require('path');
-const https = require('https');
-const http  = require('http');
+import fs from 'fs';
+import path from 'path';
+import https from 'https';
+import http from 'http';
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname  = path.dirname(__filename);
 
 const args      = process.argv.slice(2);
 const getArg    = (f) => { const i = args.indexOf(f); return i !== -1 ? args[i+1] : null; };
