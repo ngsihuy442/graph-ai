@@ -122,3 +122,17 @@ Write-Host '     { "command": "node", "args": [".mcp/server.js"] }' -ForegroundC
 Write-Host ""
 Write-Host "  Cap nhat skill sau nay: node .mcp/sync.js" -ForegroundColor White
 Write-Host ""
+
+# [6] Don dep tep tin tam (Cleanup)
+Write-Host "[6] Dang don dep cac tep tin cai dat..." -ForegroundColor Yellow
+$CleanupFiles = @("setup-project.ps1", "package.json", "package-lock.json")
+foreach ($f in $CleanupFiles) {
+    $p = Join-Path $McpTarget $f
+    if (Test-Path $p) { 
+        Remove-Item $p -Force 
+        Write-Host "  ✓ Da xoa: .mcp/$f" -ForegroundColor Gray
+    }
+}
+Write-Host "  OK: He thong da duoc lam sach." -ForegroundColor Green
+Write-Host ""
+
