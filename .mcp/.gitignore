@@ -1,0 +1,19 @@
+# Antigravity MCP — .gitignore
+
+# File config cá nhân (chứa token, user_id)
+.antigravity
+
+# Data files (auto-generated, dung lượng lớn)
+graph.json
+*.json
+!package.json
+
+# npm
+node_modules/
+
+# Deprecated
+chat.js
+
+# Generated output (ở project root)
+../.cursorrules
+../.antigravity-graph.json
