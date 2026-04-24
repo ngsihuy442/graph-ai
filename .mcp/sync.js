@@ -19,7 +19,14 @@ if (!fs.existsSync(configPath)) {
     console.error('Error: Config not found at ' + configPath);
     process.exit(1);
 }
-const config     = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+
+// Đọc và loại bỏ BOM nếu có
+let configRaw = fs.readFileSync(configPath, 'utf-8');
+if (configRaw.charCodeAt(0) === 0xFEFF) {
+    configRaw = configRaw.slice(1);
+}
+
+const config = JSON.parse(configRaw);
 const { api_url, token, user_id } = config;
 
 function fetchProject(projectId) {
