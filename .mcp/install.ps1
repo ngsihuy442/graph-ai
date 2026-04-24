@@ -130,7 +130,7 @@ foreach ($f in $CleanupFiles) {
     $p = Join-Path $McpTarget $f
     if (Test-Path $p) { 
         Remove-Item $p -Force 
-        Write-Host "  ✓ Da xoa: .mcp/$f" -ForegroundColor Gray
+        Write-Host "  - Da xoa: .mcp/$f" -ForegroundColor Gray
     }
 }
 Write-Host "  OK: He thong da duoc lam sach." -ForegroundColor Green
