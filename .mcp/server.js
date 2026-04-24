@@ -8,11 +8,12 @@ process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
 
 const __dirname        = path.dirname(fileURLToPath(import.meta.url));
 const configPath       = path.join(__dirname, '.antigravity');
-const projectRoot      = path.resolve(__dirname, '..');
 
 function getConfig() {
   if (!fs.existsSync(configPath)) return null;
-  return JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+  let raw = fs.readFileSync(configPath, 'utf-8');
+  if (raw.charCodeAt(0) === 0xFEFF) raw = raw.slice(1);
+  return JSON.parse(raw);
 }
 
 async function fetchGraphFromHost(projectId) {
