@@ -94,6 +94,18 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
         },
         required: ["project_b"]
       }
+    },
+    {
+      name: "get_symbol_source",
+      description: "Lay ma nguon thuc te cua mot ham/class.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          node_id:    { type: "string" },
+          project_id: { type: "string" }
+        },
+        required: ["node_id"]
+      }
     }
   ]
 }));
@@ -140,6 +152,23 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       let res = `Compare #${pidA} vs #${args.project_b}:\nOnly in B (${diff.length} nodes):\n`;
       diff.slice(0, 20).forEach(n => { res += `+ [${n.type}] ${n.id}\n`; });
       return text(res);
+    }
+    if (name === "get_symbol_source") {
+      const cfg = getConfig();
+      const { nodes, projectName, projectId } = await fetchGraphFromHost(args.project_id);
+      const node = nodes.find(n => n.id === args.node_id);
+      if (!node || !node.file) return text(`Khong tim thay symbol '${args.node_id}' hoac thong tin file.`);
+      
+      const baseUrl = cfg.get_code_url || cfg.api_url.replace('/export-api', '/get-code');
+      const url = `${baseUrl}?log_id=${projectId}&token=${cfg.token}&file=${encodeURIComponent(node.file)}&line=${node.line || 1}&end_line=${node.endLine || ''}`;
+      
+      const response = await fetch(url);
+      const data = await response.json();
+      if (data.status === "success") {
+        return text(`--- SOURCE: ${node.file} (Line ${data.startLine}) ---\n${data.code}\n--- END ---`);
+      } else {
+        return text(`Loi tu host: ${data.message}`);
+      }
     }
     throw new Error(`Tool not found: ${name}`);
   } catch (e) { return text(`Error: ${e.message}`); }
