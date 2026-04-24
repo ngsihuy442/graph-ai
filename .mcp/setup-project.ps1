@@ -16,6 +16,7 @@ param(
     [string]$ProjectId,
 
     [string]$ApiUrl      = "https://dm02.vinaweb.vn/graph-ai/admin/analyzer/export-api",
+    [string]$GetCodeUrl   = "https://dm02.vinaweb.vn/graph-ai/admin/analyzer/get-code",
     [string]$AgentChatUrl= "https://dm02.vinaweb.vn/graph-ai/admin/analyzer/agent-chat",
     [string]$Token       = "antigravity_secret_2026",
     [string]$UserId      = "6",
@@ -60,6 +61,7 @@ $antigravityContent = @"
 {
   "project_id": "$ProjectId",
   "api_url": "$ApiUrl",
+  "get_code_url": "$GetCodeUrl",
   "agent_chat_url": "$AgentChatUrl",
   "token": "$Token",
   "user_id": "$UserId",
