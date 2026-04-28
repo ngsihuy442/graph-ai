@@ -28,7 +28,6 @@ if (-not $UserId) { Write-Host "  Error: User ID khong duoc de trong" -Foregroun
 $ProjectId = Read-Host "  Nhap Project ID (Enter de dung 'latest')"
 if (-not $ProjectId) { $ProjectId = "latest" }
 
-# Thêm tuỳ chọn nhập Token bảo mật
 $TokenInput = Read-Host "  Nhap Token bao mat (Enter de dung token mac dinh)"
 $Token = if ($TokenInput) { $TokenInput } else { $DefaultToken }
 
@@ -39,9 +38,12 @@ $RefProjects = if ($RefInput) {
 
 Write-Host ""
 
+# [2] TAI TU GITHUB VAO THU MUC TAM _ag_tmp
 Write-Host "[2] Dang tai tu GitHub..." -ForegroundColor Cyan
+$TempDir = Join-Path (Get-Location) "_ag_tmp"
 
-$TempDir = Join-Path ([System.IO.Path]::GetTempPath()) "ag_install_$(Get-Random)"
+# Xoa thu muc tam cu neu ton tai de tranh xung dot
+if (Test-Path $TempDir) { Remove-Item $TempDir -Recurse -Force }
 
 if (Get-Command git -ErrorAction SilentlyContinue) {
     git clone --depth=1 --quiet $GithubRepo $TempDir
@@ -55,7 +57,6 @@ if (-not (Test-Path $McpSource)) {
     Remove-Item $TempDir -Recurse -Force -ErrorAction SilentlyContinue
     exit 1
 }
-
 Write-Host "  OK: Tai thanh cong" -ForegroundColor Green
 
 Write-Host ""
@@ -75,9 +76,10 @@ foreach ($f in $copyFiles) {
     }
 }
 
+# --- QUAN TRONG: XOA THU MUC TAM _ag_tmp NGAY SAU KHI COPY ---
 Remove-Item $TempDir -Recurse -Force -ErrorAction SilentlyContinue
+Write-Host "  - Da xoa thu muc tam _ag_tmp" -ForegroundColor Gray
 
-# Đưa biến $Token vào file cấu hình
 $antigravityContent = @"
 {
   "project_id": "$ProjectId",
