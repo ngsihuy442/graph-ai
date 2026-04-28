@@ -142,6 +142,7 @@ Script sẽ hỏi:
 - **User ID**: ID tài khoản của bạn trên hệ thống
 - **Project ID**: ID dự án cần phân tích
 - **Reference Projects** *(tùy chọn)*: Dự án tham chiếu để so sánh
+- **Token**: Lấy mã token trong Cài đặt AI cá nhân để kết nối tới server
 
 ---
 
