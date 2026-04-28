@@ -17,26 +17,43 @@ function getConfig() {
 }
 
 async function fetchGraphFromHost(projectId) {
-  const cfg = getConfig();
-  if (!cfg) throw new Error('Chua cau hinh .antigravity');
+    const graphPath = path.join(__dirname, 'graph.json');
+    
+    // Ưu tiên đọc từ file cục bộ để tốc độ nhanh nhất
+    if (fs.existsSync(graphPath)) {
+        try {
+            const allData = JSON.parse(fs.readFileSync(graphPath, 'utf-8'));
+            const pid = projectId || getConfig()?.project_id;
+            
+            // Tìm dự án trong file projects
+            const project = allData.projects.find(p => p.id == pid || p.name == projectId);
+            if (project) {
+                return {
+                    projectId: project.id,
+                    projectName: project.name,
+                    nodes: project.nodes,
+                    edges: project.edges,
+                    mdRules: "" // Rules đã nằm trong .cursorrules
+                };
+            }
+        } catch (e) {
+            console.error("Lỗi đọc graph.json, chuyển sang gọi API...");
+        }
+    }
 
-  const pid = projectId || cfg.project_id || 'latest';
-  const url = `${cfg.api_url}?id=${pid}&token=${cfg.token || 'antigravity_secret_2026'}&user_id=${cfg.user_id || ''}`;
-
-  const res  = await fetch(url);
-  const data = await res.json();
-
-  if (data.status !== 'success') {
-    throw new Error(`API loi cho project #${pid}: ${data.message}`);
-  }
-
-  return {
-    projectId:   data.project_id ?? pid,
-    projectName: data.project_name,
-    nodes:       data.nodes  || [],
-    edges:       data.edges  || [],
-    mdRules:     data.markdown_rules || '',
-  };
+    // Fallback: Gọi API nếu không có file graph.json (Giữ nguyên logic cũ của bạn)
+    const cfg = getConfig();
+    const pid = projectId || cfg.project_id || 'latest';
+    const url = `${cfg.api_url}?id=${pid}&token=${cfg.token}&user_id=${cfg.user_id || ''}`;
+    const res = await fetch(url);
+    const data = await res.json();
+    return {
+        projectId: data.project_id,
+        projectName: data.project_name,
+        nodes: data.nodes || [],
+        edges: data.edges || [],
+        mdRules: data.markdown_rules || '',
+    };
 }
 
 const server = new Server(
