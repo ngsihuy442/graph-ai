@@ -2,12 +2,14 @@
 <#
 .SYNOPSIS
     Antigravity MCP Installer (Optimized)
+    Tai va cai dat Antigravity AI Agent cho du an hien tai.
 #>
 
 $ErrorActionPreference = "Stop"
-$DefaultApi   = "https://dm02.vinaweb.vn/graph-ai/admin/analyzer/export-api"
-$DefaultChat  = "https://dm02.vinaweb.vn/graph-ai/admin/analyzer/agent-chat"
-$DefaultToken = "antigravity_secret_2026"
+$DefaultApi      = "https://dm02.vinaweb.vn/graph-ai/admin/analyzer/export-api"
+$DefaultGetCode  = "https://dm02.vinaweb.vn/graph-ai/admin/analyzer/get-code"
+$DefaultChat     = "https://dm02.vinaweb.vn/graph-ai/admin/analyzer/agent-chat"
+$DefaultToken    = "antigravity_secret_2026"
 
 Write-Host "`n================================================" -ForegroundColor Cyan
 Write-Host "   Antigravity AI Agent --- Installer           " -ForegroundColor Cyan
@@ -30,7 +32,7 @@ $RefProjects = if ($RefInput) { '["' + ($RefInput.Split(',').Trim() -join '","')
 
 Write-Host "`n[2] Dang cai dat files..." -ForegroundColor Cyan
 
-# Lấy nguồn file ngay tại thư mục chứa file install.ps1 (tức là trong _ag_tmp)
+# Lấy nguồn file ngay tại thư mục chứa file install.ps1 (trong _ag_tmp)
 $McpSource = $PSScriptRoot
 $McpTarget = Join-Path (Get-Location) ".mcp"
 
@@ -50,6 +52,7 @@ $antigravityContent = @"
 {
   "project_id": "$ProjectId",
   "api_url": "$DefaultApi",
+  "get_code_url": "$DefaultGetCode",
   "agent_chat_url": "$DefaultChat",
   "token": "$Token",
   "user_id": "$UserId",
