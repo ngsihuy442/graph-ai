@@ -1,23 +1,17 @@
 #!/usr/bin/env pwsh
 <#
 .SYNOPSIS
-    Antigravity MCP Installer
-    Tai va cai dat Antigravity AI Agent cho du an hien tai.
+    Antigravity MCP Installer (Optimized)
 #>
 
 $ErrorActionPreference = "Stop"
-$GithubRepo   = "https://github.com/ngsihuy442/graph-ai.git"
 $DefaultApi   = "https://dm02.vinaweb.vn/graph-ai/admin/analyzer/export-api"
 $DefaultChat  = "https://dm02.vinaweb.vn/graph-ai/admin/analyzer/agent-chat"
 $DefaultToken = "antigravity_secret_2026"
 
-Write-Host ""
-Write-Host "================================================" -ForegroundColor Cyan
+Write-Host "`n================================================" -ForegroundColor Cyan
 Write-Host "   Antigravity AI Agent --- Installer           " -ForegroundColor Cyan
-Write-Host "================================================" -ForegroundColor Cyan
-Write-Host ""
-Write-Host "  Cai dat AI Agent cho: $(Get-Location)" -ForegroundColor White
-Write-Host ""
+Write-Host "================================================`n" -ForegroundColor Cyan
 
 Write-Host "[1] THONG TIN CAU HINH" -ForegroundColor Yellow
 Write-Host "------------------------------------------------"
@@ -28,46 +22,21 @@ if (-not $UserId) { Write-Host "  Error: User ID khong duoc de trong" -Foregroun
 $ProjectId = Read-Host "  Nhap Project ID (Enter de dung 'latest')"
 if (-not $ProjectId) { $ProjectId = "latest" }
 
-$TokenInput = Read-Host "  Nhap Token bao mat (Enter de dung token mac dinh)"
+$TokenInput = Read-Host "  Nhap Token bao mat (Enter de dung mac dinh)"
 $Token = if ($TokenInput) { $TokenInput } else { $DefaultToken }
 
-$RefInput = Read-Host "  Du an tham chieu (Enter de bo qua, hoac nhap ID cach nhau dau phay)"
-$RefProjects = if ($RefInput) { 
-    '["' + ($RefInput.Split(',').Trim() -join '","') + '"]'
-} else { '[]' }
+$RefInput = Read-Host "  Du an tham chieu (Enter bo qua, nhap ID cach bang dau phay)"
+$RefProjects = if ($RefInput) { '["' + ($RefInput.Split(',').Trim() -join '","') + '"]' } else { '[]' }
 
-Write-Host ""
+Write-Host "`n[2] Dang cai dat files..." -ForegroundColor Cyan
 
-# [2] TAI TU GITHUB VAO THU MUC TAM _ag_tmp
-Write-Host "[2] Dang tai tu GitHub..." -ForegroundColor Cyan
-$TempDir = Join-Path (Get-Location) "_ag_tmp"
-
-# Xoa thu muc tam cu neu ton tai de tranh xung dot
-if (Test-Path $TempDir) { Remove-Item $TempDir -Recurse -Force }
-
-if (Get-Command git -ErrorAction SilentlyContinue) {
-    git clone --depth=1 --quiet $GithubRepo $TempDir
-} else {
-    Write-Host "  Error: Can cai dat git truoc" -ForegroundColor Red; exit 1
-}
-
-$McpSource = Join-Path $TempDir ".mcp"
-if (-not (Test-Path $McpSource)) {
-    Write-Host "  Error: Khong tim thay .mcp/ trong repo" -ForegroundColor Red
-    Remove-Item $TempDir -Recurse -Force -ErrorAction SilentlyContinue
-    exit 1
-}
-Write-Host "  OK: Tai thanh cong" -ForegroundColor Green
-
-Write-Host ""
-Write-Host "[3] Dang cai dat files..." -ForegroundColor Cyan
-
+# Lấy nguồn file ngay tại thư mục chứa file install.ps1 (tức là trong _ag_tmp)
+$McpSource = $PSScriptRoot
 $McpTarget = Join-Path (Get-Location) ".mcp"
-if (-not (Test-Path $McpTarget)) {
-    New-Item -ItemType Directory -Path $McpTarget | Out-Null
-}
 
-$copyFiles = @("server.js", "sync.js", "setup-project.ps1", "package.json")
+if (-not (Test-Path $McpTarget)) { New-Item -ItemType Directory -Path $McpTarget | Out-Null }
+
+$copyFiles = @("server.js", "sync.js", "package.json")
 foreach ($f in $copyFiles) {
     $src = Join-Path $McpSource $f
     if (Test-Path $src) {
@@ -76,10 +45,7 @@ foreach ($f in $copyFiles) {
     }
 }
 
-# --- QUAN TRONG: XOA THU MUC TAM _ag_tmp NGAY SAU KHI COPY ---
-Remove-Item $TempDir -Recurse -Force -ErrorAction SilentlyContinue
-Write-Host "  - Da xoa thu muc tam _ag_tmp" -ForegroundColor Gray
-
+# Tạo .antigravity
 $antigravityContent = @"
 {
   "project_id": "$ProjectId",
@@ -90,55 +56,30 @@ $antigravityContent = @"
   "reference_projects": $RefProjects
 }
 "@
-
-$antigravityPath = Join-Path $McpTarget ".antigravity"
-Set-Content -Path $antigravityPath -Value $antigravityContent -Encoding UTF8
+Set-Content -Path (Join-Path $McpTarget ".antigravity") -Value $antigravityContent -Encoding UTF8
 Write-Host "  + .mcp/.antigravity" -ForegroundColor Green
 
-Write-Host ""
-Write-Host "[4] Cai dat dependencies..." -ForegroundColor Cyan
+Write-Host "`n[3] Cai dat dependencies..." -ForegroundColor Cyan
 Push-Location $McpTarget
 try {
     if (Test-Path "package.json") {
         npm install --silent
-        Write-Host "  OK: @modelcontextprotocol/sdk" -ForegroundColor Green
+        Write-Host "  OK: NPM Packages Installed" -ForegroundColor Green
     }
-} catch {
-    Write-Host "  Warning: npm install loi: $_" -ForegroundColor Yellow
-} finally {
-    Pop-Location
-}
+} catch { Write-Host "  Warning: npm install loi" -ForegroundColor Yellow } 
+finally { Pop-Location }
 
-Write-Host ""
-Write-Host "[5] Sync du lieu tu host..." -ForegroundColor Cyan
-try {
-    node ".mcp/sync.js"
-} catch {
-    Write-Host "  Warning: Sync loi. Ban co the chay lai sau: node .mcp/sync.js" -ForegroundColor Yellow
-}
+Write-Host "`n[4] Sync du lieu tu host..." -ForegroundColor Cyan
+try { node ".mcp/sync.js" } 
+catch { Write-Host "  Warning: Sync loi." -ForegroundColor Yellow }
 
-Write-Host ""
-Write-Host "================================================" -ForegroundColor Green
-Write-Host "   CAI DAT HOAN TAT!                            " -ForegroundColor Green
-Write-Host "================================================" -ForegroundColor Green
-Write-Host ""
-Write-Host "  Buoc tiep theo:" -ForegroundColor Yellow
-Write-Host "  1. Restart IDE de load .cursorrules" -ForegroundColor White
-Write-Host "  2. Them MCP server vao IDE settings:" -ForegroundColor White
-Write-Host '     { "command": "node", "args": [".mcp/server.js"] }' -ForegroundColor Cyan
-Write-Host ""
-Write-Host "  Cap nhat skill sau nay: node .mcp/sync.js" -ForegroundColor White
-Write-Host ""
-
-# [6] Don dep tep tin tam (Cleanup)
-Write-Host "[6] Dang don dep cac tep tin cai dat..." -ForegroundColor Yellow
-$CleanupFiles = @("setup-project.ps1", "package.json", "package-lock.json")
+# Don dep package.json ra khoi du an
+$CleanupFiles = @("package.json", "package-lock.json")
 foreach ($f in $CleanupFiles) {
     $p = Join-Path $McpTarget $f
-    if (Test-Path $p) { 
-        Remove-Item $p -Force 
-        Write-Host "  - Da xoa: .mcp/$f" -ForegroundColor Gray
-    }
+    if (Test-Path $p) { Remove-Item $p -Force }
 }
-Write-Host "  OK: He thong da duoc lam sach." -ForegroundColor Green
-Write-Host ""
+
+Write-Host "`n================================================" -ForegroundColor Green
+Write-Host "   CAI DAT HOAN TAT!                            " -ForegroundColor Green
+Write-Host "================================================`n" -ForegroundColor Green
