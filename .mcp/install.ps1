@@ -28,6 +28,10 @@ if (-not $UserId) { Write-Host "  Error: User ID khong duoc de trong" -Foregroun
 $ProjectId = Read-Host "  Nhap Project ID (Enter de dung 'latest')"
 if (-not $ProjectId) { $ProjectId = "latest" }
 
+# Thêm tuỳ chọn nhập Token bảo mật
+$TokenInput = Read-Host "  Nhap Token bao mat (Enter de dung token mac dinh)"
+$Token = if ($TokenInput) { $TokenInput } else { $DefaultToken }
+
 $RefInput = Read-Host "  Du an tham chieu (Enter de bo qua, hoac nhap ID cach nhau dau phay)"
 $RefProjects = if ($RefInput) { 
     '["' + ($RefInput.Split(',').Trim() -join '","') + '"]'
@@ -73,12 +77,13 @@ foreach ($f in $copyFiles) {
 
 Remove-Item $TempDir -Recurse -Force -ErrorAction SilentlyContinue
 
+# Đưa biến $Token vào file cấu hình
 $antigravityContent = @"
 {
   "project_id": "$ProjectId",
   "api_url": "$DefaultApi",
   "agent_chat_url": "$DefaultChat",
-  "token": "$DefaultToken",
+  "token": "$Token",
   "user_id": "$UserId",
   "reference_projects": $RefProjects
 }
@@ -135,4 +140,3 @@ foreach ($f in $CleanupFiles) {
 }
 Write-Host "  OK: He thong da duoc lam sach." -ForegroundColor Green
 Write-Host ""
-
