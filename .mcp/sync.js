@@ -49,16 +49,15 @@ function fetchProject(projectId) {
 }
 
 function buildCursorRules(mainData, refDataList) {
-    const now   = new Date().toLocaleString('vi-VN');
-    const nodes = mainData.nodes || [];
-    const edges = mainData.edges || [];
+    const now = new Date().toLocaleString('vi-VN');
     let md = `# Project: ${mainData.project_name} (#${mainData.project_id})\n`;
     md += `Synced: ${now}\n\n`;
+    
+    // Chèn bộ luật Kỷ luật thép từ server
     md += mainData.markdown_rules || '';
-    md += '\n\n---\n## SYMBOLS INDEX\n\n';
-    nodes.slice(0, 200).forEach(n => {
-        md += `- [${n.type}] ${n.id} @ ${path.basename(n.file||'')}\n`;
-    });
+    
+    // Không cần in hàng nghìn symbols vào đây nữa vì đã có graph.json và tool search_symbol
+    md += '\n\n---\n*Dữ liệu chi tiết đã được đồng bộ vào graph.json. Hãy sử dụng Antigravity Tools để truy vấn.*';
     return md;
 }
 
