@@ -184,5 +184,8 @@ Sau khi cài đặt và cấu hình IDE, chỉ cần **nói chuyện với AI**:
 
 "Có class nào xử lý dịch thuật không?"
 → AI tự gọi search_symbol(keyword="translate")
+
+"/ag dịch"
+→ Chạy MCP cho dịch
 ```
 
