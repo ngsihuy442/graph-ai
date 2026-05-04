@@ -155,6 +155,18 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
         },
         required: ["node_id"]
       }
+    },
+    {
+      name: "analyze_css",
+      description: "Phan tich AST de tim Dead CSS/SCSS va Duplicate Code tren Host.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          file_path: { type: "string", description: "Duong dan toi file SCSS (vd: bundle/css/style.scss)" },
+          project_id: { type: "string" }
+        },
+        required: ["file_path"]
+      }
     }
   ]
 }));
@@ -270,6 +282,43 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         return text(`Loi tu host: ${data.message}`);
       }
     }
+
+    if (name === "analyze_css") {
+      const cfg = getConfig();
+      const pid = args.project_id || cfg.project_id || 'latest';
+      const baseUrl = cfg.api_url.replace('/export-api', '/analyze-optimization');
+      const url = `${baseUrl}?log_id=${pid}&token=${cfg.token}&file=${encodeURIComponent(args.file_path)}`;
+      try {
+        const response = await fetch(url);
+        const data = await response.json();
+        if (data.status === "success") {
+          let res = `--- KET QUA PHAN TICH CSS AST ---\n`;
+          res += `File: ${data.file}\n`;
+          res += `Tong so Classes tim thay: ${data.total_classes_found || 0}\n\n`;
+          res += `>> DEAD CSS (Ma thua khong duoc dung): ${data.dead_items?.length || 0} muc\n`;
+          if (data.dead_items?.length) {
+            data.dead_items.slice(0, 50).forEach(i => {
+              res += `- [${i.type}] ${i.name} (Line ${i.line}) - Selector: ${i.selector}\n`;
+            });
+            if (data.dead_items.length > 50) res += `... (Va ${data.dead_items.length - 50} muc khac)\n`;
+          }
+          res += `\n>> DUPLICATED CSS (Ma lap thuoc tinh): ${data.duplicates?.length || 0} muc\n`;
+          if (data.duplicates?.length) {
+            data.duplicates.slice(0, 50).forEach(d => {
+              res += `- Lap giua Line ${d.lines[0]} va Line ${d.lines[1]}\n`;
+              res += `  Selector 1: ${d.selectors[0]}\n`;
+              res += `  Selector 2: ${d.selectors[1]}\n`;
+            });
+          }
+          return text(res);
+        } else {
+          return text(`Loi tu host: ${data.message}\nDebug: ${data.debug || ''}`);
+        }
+      } catch (e) {
+        return text(`Loi ket noi den API Analyzer: ${e.message}`);
+      }
+    }
+
     throw new Error(`Tool not found: ${name}`);
   } catch (e) { return text(`Error: ${e.message}`); }
 });
