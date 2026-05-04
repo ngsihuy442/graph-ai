@@ -20,7 +20,7 @@ function getConfig() {
 function walkSync(dir, filelist = []) {
   const ignoreFolders = ['.git', '.mcp', 'node_modules', 'vendor', 'assets', 'images', 'logs'];
   if (!fs.existsSync(dir)) return filelist;
-  
+
   const files = fs.readdirSync(dir);
   for (const file of files) {
     const filepath = path.join(dir, file);
@@ -167,6 +167,20 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
         },
         required: ["file_path"]
       }
+    },
+    {
+      name: "cleanup_code",
+      description: "Don dep ma nguon (Dead code hoac Duplicate) bang cach comment hoac xoa truc tiep file. Ho tro ca CSS, SCSS, va JS.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          action: { type: "string", description: "Hanh dong: 'comment' hoac 'remove'" },
+          target: { type: "string", description: "Muc tieu: 'dead', 'duplicate', hoac 'all'" },
+          file_path: { type: "string", description: "Duong dan tuyet doi toi file can don dep" },
+          json_report_path: { type: "string", description: "Duong dan tuyet doi toi file report JSON tu analyze_css" }
+        },
+        required: ["action", "target", "file_path", "json_report_path"]
+      }
     }
   ]
 }));
@@ -203,7 +217,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
         // Bỏ qua file theo đuôi mở rộng (nếu AI có yêu cầu)
         if (extFilter && !file.toLowerCase().endsWith(extFilter)) continue;
-        
+
         // Bỏ qua các file không phải văn bản
         if (file.match(/\.(png|jpg|jpeg|gif|ico|zip|pdf|exe|dll|ttf|woff)$/i)) continue;
 
@@ -242,7 +256,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       res += `Out (${outgoing.length}): ` + outgoing.slice(0, 5).map(e => e.target).join(', ') + '\n';
       return text(res);
     }
-    
+
     if (name === "analyze_impact") {
       const { edges, projectName } = await fetchGraphFromHost(args.project_id);
       const incoming = edges.filter(e => e.target === args.node_id);
@@ -252,7 +266,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       } else { res += `GREEN: Safe to edit.`; }
       return text(res);
     }
-    
+
     if (name === "compare_projects") {
       const cfg = getConfig();
       const pidA = args.project_a || cfg?.project_id || 'latest';
@@ -264,7 +278,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       diff.slice(0, 20).forEach(n => { res += `+ [${n.type}] ${n.id}\n`; });
       return text(res);
     }
-    
+
     if (name === "get_symbol_source") {
       const cfg = getConfig();
       const { nodes, projectName, projectId } = await fetchGraphFromHost(args.project_id);
@@ -316,6 +330,26 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         }
       } catch (e) {
         return text(`Loi ket noi den API Analyzer: ${e.message}`);
+      }
+    }
+
+    if (name === "cleanup_code") {
+      try {
+        const { exec } = await import('child_process');
+        const scriptPath = path.join(__dirname, '../backend/parsers/cleanup_code.js');
+        const cmd = `node "${scriptPath}" "${args.action}" "${args.target}" "${args.file_path}" "${args.json_report_path}"`;
+        
+        return new Promise((resolve) => {
+           exec(cmd, (error, stdout, stderr) => {
+               if (error) {
+                   resolve(text(`Lỗi khi dọn dẹp mã: ${error.message}\n${stderr}`));
+               } else {
+                   resolve(text(stdout));
+               }
+           });
+        });
+      } catch (e) {
+         return text(`Lỗi khi gọi lệnh dọn dẹp: ${e.message}`);
       }
     }
 
