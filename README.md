@@ -88,6 +88,11 @@ git clone https://github.com/ngsihuy442/graph-ai.git _ag_tmp; .\_ag_tmp\.mcp\ins
 Remove-Item _ag_tmp -Recurse -Force
 ```
 
+Cline VS CODE:
+```powershell
+gcloud auth application-default login ; gcloud auth application-default set-quota-project gemini-enterprise-493208
+```
+
 Script sẽ hỏi:
 - **User ID**: ID tài khoản của bạn trên hệ thống
 - **Project ID**: ID dự án cần phân tích
