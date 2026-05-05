@@ -7,9 +7,8 @@ import path from 'path';
 process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const configPath = path.join(__dirname, '.antigravity');
-
-function getConfig() {
+function getConfig(projectRoot = null) {
+  const configPath = projectRoot ? path.join(projectRoot, '.mcp', '.antigravity') : path.join(__dirname, '.antigravity');
   if (!fs.existsSync(configPath)) return null;
   let raw = fs.readFileSync(configPath, 'utf-8');
   if (raw.charCodeAt(0) === 0xFEFF) raw = raw.slice(1);
@@ -162,7 +161,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
       inputSchema: {
         type: "object",
         properties: {
-          file_path: { type: "string", description: "BAT BUOC la duong dan TUONG DOI tu goc du an (vd: bundle/css/style.scss). KHONG truyen duong dan tuyet doi vi API tren host khong hieu!" },
+          file_path: { type: "string", description: "BAT BUOC la duong dan TUYET DOI toi file SCSS (vd: d:\\laragon\\www\\pacific\\bundle\\css\\style.scss)" },
           project_id: { type: "string", description: "TÙY CHỌN: ID dự án. KHÔNG TRUYỀN (bỏ qua tham số này) để tự động dùng dự án hiện tại." }
         },
         required: ["file_path"]
@@ -176,8 +175,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
         properties: {
           action: { type: "string", description: "Hanh dong: 'comment' hoac 'remove' (KHUYẾN KHÍCH DÙNG 'remove' để xóa hẳn cho sạch, vì hệ thống luôn tự động tạo file backup an toàn trước khi chạy)." },
           target: { type: "string", description: "Muc tieu: 'dead', 'duplicate', hoac 'all'" },
-          file_path: { type: "string", description: "BAT BUOC la duong dan TUYET DOI toi file can don dep tren local (vd: d:\\laragon\\www\\pacific\\bundle\\css\\style.scss)" },
-          json_report_path: { type: "string", description: "Duong dan tuyet doi toi file report JSON tu analyze_css (Khong bat buoc, mac dinh la css_report.json)" }
+          file_path: { type: "string", description: "BAT BUOC la duong dan TUYET DOI toi file can don dep tren local (vd: d:\\laragon\\www\\pacific\\bundle\\css\\style.scss)" }
         },
         required: ["action", "target", "file_path"]
       }
@@ -298,15 +296,29 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     }
 
     if (name === "analyze_css") {
-      const cfg = getConfig();
+      // Tư dong tim projectRoot tu duong dan tuyet doi cua file
+      let currentDir = path.dirname(args.file_path);
+      let projectRoot = null;
+      while (currentDir !== path.parse(currentDir).root) {
+          if (fs.existsSync(path.join(currentDir, '.mcp'))) {
+              projectRoot = currentDir;
+              break;
+          }
+          currentDir = path.dirname(currentDir);
+      }
+      const relativeFilePath = projectRoot ? path.relative(projectRoot, args.file_path).replace(/\\/g, '/') : args.file_path;
+
+      const cfg = getConfig(projectRoot);
       const pid = args.project_id || cfg.project_id || 'latest';
       const baseUrl = cfg.api_url.replace('/export-api', '/analyze-optimization');
-      const url = `${baseUrl}?log_id=${pid}&token=${cfg.token}&file=${encodeURIComponent(args.file_path)}`;
+      const url = `${baseUrl}?log_id=${pid}&token=${cfg.token}&file=${encodeURIComponent(relativeFilePath)}`;
       try {
         const response = await fetch(url);
         const data = await response.json();
         if (data.status === "success") {
-          const reportPath = path.join(__dirname, 'css_report.json');
+          data._project_id = pid;
+          data._project_name = cfg.project_name || "Unknown";
+          const reportPath = projectRoot ? path.join(projectRoot, '.mcp', 'css_report.json').replace(/\\/g, '/') : path.join(__dirname, 'css_report.json');
           fs.writeFileSync(reportPath, JSON.stringify(data, null, 2), 'utf-8');
 
           let res = `--- KET QUA PHAN TICH CSS AST ---\n`;
@@ -342,7 +354,18 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       try {
         const { exec } = await import('child_process');
         const scriptPath = path.join(__dirname, '../backend/parsers/cleanup_code.js').replace(/\\/g, '/');
-        let reportPath = args.json_report_path || path.join(__dirname, 'css_report.json');
+        
+        let currentDir = path.dirname(args.file_path);
+        let projectRoot = null;
+        while (currentDir !== path.parse(currentDir).root) {
+            if (fs.existsSync(path.join(currentDir, '.mcp'))) {
+                projectRoot = currentDir;
+                break;
+            }
+            currentDir = path.dirname(currentDir);
+        }
+
+        let reportPath = args.json_report_path || (projectRoot ? path.join(projectRoot, '.mcp', 'css_report.json') : path.join(__dirname, 'css_report.json'));
         reportPath = reportPath.replace(/\\/g, '/');
         const cmd = `node "${scriptPath}" "${args.action}" "${args.target}" "${args.file_path}" "${reportPath}"`;
         
