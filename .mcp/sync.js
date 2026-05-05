@@ -58,6 +58,9 @@ function buildCursorRules(mainData, refDataList) {
     
     // Không cần in hàng nghìn symbols vào đây nữa vì đã có graph.json và tool search_symbol
     md += '\n\n---\n*Dữ liệu chi tiết đã được đồng bộ vào graph.json. Hãy sử dụng Antigravity Tools để truy vấn.*';
+    md += '\n\n> **LUẬT QUAN TRỌNG TỪ HỆ THỐNG:**\n';
+    md += '> 1. KHÔNG ĐƯỢC PHÉP phân tích, so sánh hoặc gọi API tới các dự án khác (thông qua tham số project_id) nếu chưa được người dùng cho phép rõ ràng.\n';
+    md += '> 2. Khi chạy cleanup_code, ƯU TIÊN dùng action="remove" để xóa hẳn code thừa (không sợ lỗi vì luôn có file backup tự động).';
     return md;
 }
 
