@@ -5,13 +5,13 @@ import http from 'http';
 import { fileURLToPath } from 'url';
 
 const __filename = fileURLToPath(import.meta.url);
-const __dirname  = path.dirname(__filename);
+const __dirname = path.dirname(__filename);
 
-const args      = process.argv.slice(2);
-const getArg    = (f) => { const i = args.indexOf(f); return i !== -1 ? args[i+1] : null; };
+const args = process.argv.slice(2);
+const getArg = (f) => { const i = args.indexOf(f); return i !== -1 ? args[i + 1] : null; };
 const extraRefs = getArg('--ref') ? [getArg('--ref')] : [];
 
-const mcpDir     = __dirname;
+const mcpDir = __dirname;
 const projectDir = path.resolve(mcpDir, '..');
 const configPath = path.join(mcpDir, '.antigravity');
 
@@ -32,7 +32,7 @@ const { api_url, token, user_id } = config;
 function fetchProject(projectId) {
     return new Promise((resolve, reject) => {
         const params = new URLSearchParams({ id: projectId, token, user_id: user_id || '' });
-        const url    = api_url.replace(/\/$/, '') + '?' + params.toString();
+        const url = api_url.replace(/\/$/, '') + '?' + params.toString();
         console.log(`  -> GET ${projectId}`);
         const client = url.startsWith('https') ? https : http;
         const req = client.get(url, res => {
@@ -52,15 +52,16 @@ function buildCursorRules(mainData, refDataList) {
     const now = new Date().toLocaleString('vi-VN');
     let md = `# Project: ${mainData.project_name} (#${mainData.project_id})\n`;
     md += `Synced: ${now}\n\n`;
-    
+
     // Chèn bộ luật Kỷ luật thép từ server
     md += mainData.markdown_rules || '';
-    
+
     // Không cần in hàng nghìn symbols vào đây nữa vì đã có graph.json và tool search_symbol
     md += '\n\n---\n*Dữ liệu chi tiết đã được đồng bộ vào graph.json. Hãy sử dụng Antigravity Tools để truy vấn.*';
     md += '\n\n> **LUẬT QUAN TRỌNG TỪ HỆ THỐNG:**\n';
     md += '> 1. KHÔNG ĐƯỢC PHÉP phân tích, so sánh hoặc gọi API tới các dự án khác (thông qua tham số project_id) nếu chưa được người dùng cho phép rõ ràng.\n';
     md += '> 2. Khi chạy cleanup_code, ƯU TIÊN dùng action="remove" để xóa hẳn code thừa (không sợ lỗi vì luôn có file backup tự động).';
+    md += '> 3. Khi dọn dẹp CSS/SCSS (sử dụng analyze_css và cleanup_code), nếu gặp đoạn CSS hoặc file SCSS có comment bắt đầu bằng `/*[CLEANUP ALL]` (hoặc tương tự), bạn được phép xóa sạch đoạn code đó hoặc toàn bộ file đó mà không cần hỏi lại.';
     return md;
 }
 
@@ -78,14 +79,14 @@ async function main() {
     const mainId = config.project_id || 'latest';
     const mainData = await fetchProject(mainId);
     if (mainData.status !== 'success') throw new Error(mainData.message);
-    
+
     const refIds = [...(config.reference_projects || []), ...extraRefs];
     const refDataList = [];
     for (const rid of refIds) {
         try {
             const rd = await fetchProject(rid);
             if (rd.status === 'success') refDataList.push(rd);
-        } catch(e) { console.warn(`Warn: #${rid} failed: ${e.message}`); }
+        } catch (e) { console.warn(`Warn: #${rid} failed: ${e.message}`); }
     }
 
     const cursorrules = buildCursorRules(mainData, refDataList);
