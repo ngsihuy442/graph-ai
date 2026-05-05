@@ -172,9 +172,6 @@ node .mcp/sync.js --ref 102
 ```
 project/
 ├── .cursorrules                      ← Auto-generated (IDE đọc tự động)
-├── backend/
-│   └── parsers/
-│       └── cleanup_code.js           ← Engine dọn dẹp CSS/JS local
 └── .mcp/
     ├── .antigravity                  ← Config: user_id, project_id, token...
     ├── graph.json                    ← Bản đồ dự án (nodes + edges, offline)
