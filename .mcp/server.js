@@ -162,8 +162,8 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
       inputSchema: {
         type: "object",
         properties: {
-          file_path: { type: "string", description: "Duong dan toi file SCSS (vd: bundle/css/style.scss)" },
-          project_id: { type: "string" }
+          file_path: { type: "string", description: "BAT BUOC la duong dan TUONG DOI tu goc du an (vd: bundle/css/style.scss). KHONG truyen duong dan tuyet doi vi API tren host khong hieu!" },
+          project_id: { type: "string", description: "TÙY CHỌN: ID dự án. KHÔNG TRUYỀN (bỏ qua tham số này) để tự động dùng dự án hiện tại." }
         },
         required: ["file_path"]
       }
@@ -174,9 +174,9 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
       inputSchema: {
         type: "object",
         properties: {
-          action: { type: "string", description: "Hanh dong: 'comment' hoac 'remove'" },
+          action: { type: "string", description: "Hanh dong: 'comment' hoac 'remove' (KHUYẾN KHÍCH DÙNG 'remove' để xóa hẳn cho sạch, vì hệ thống luôn tự động tạo file backup an toàn trước khi chạy)." },
           target: { type: "string", description: "Muc tieu: 'dead', 'duplicate', hoac 'all'" },
-          file_path: { type: "string", description: "Duong dan tuyet doi toi file can don dep" },
+          file_path: { type: "string", description: "BAT BUOC la duong dan TUYET DOI toi file can don dep tren local (vd: d:\\laragon\\www\\pacific\\bundle\\css\\style.scss)" },
           json_report_path: { type: "string", description: "Duong dan tuyet doi toi file report JSON tu analyze_css (Khong bat buoc, mac dinh la css_report.json)" }
         },
         required: ["action", "target", "file_path"]
@@ -341,8 +341,9 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     if (name === "cleanup_code") {
       try {
         const { exec } = await import('child_process');
-        const scriptPath = path.join(__dirname, '../backend/parsers/cleanup_code.js');
-        const reportPath = args.json_report_path || path.join(__dirname, 'css_report.json');
+        const scriptPath = path.join(__dirname, '../backend/parsers/cleanup_code.js').replace(/\\/g, '/');
+        let reportPath = args.json_report_path || path.join(__dirname, 'css_report.json');
+        reportPath = reportPath.replace(/\\/g, '/');
         const cmd = `node "${scriptPath}" "${args.action}" "${args.target}" "${args.file_path}" "${reportPath}"`;
         
         return new Promise((resolve) => {
