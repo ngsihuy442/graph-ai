@@ -177,9 +177,9 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
           action: { type: "string", description: "Hanh dong: 'comment' hoac 'remove'" },
           target: { type: "string", description: "Muc tieu: 'dead', 'duplicate', hoac 'all'" },
           file_path: { type: "string", description: "Duong dan tuyet doi toi file can don dep" },
-          json_report_path: { type: "string", description: "Duong dan tuyet doi toi file report JSON tu analyze_css" }
+          json_report_path: { type: "string", description: "Duong dan tuyet doi toi file report JSON tu analyze_css (Khong bat buoc, mac dinh la css_report.json)" }
         },
-        required: ["action", "target", "file_path", "json_report_path"]
+        required: ["action", "target", "file_path"]
       }
     }
   ]
@@ -306,7 +306,12 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         const response = await fetch(url);
         const data = await response.json();
         if (data.status === "success") {
+          const reportPath = path.join(__dirname, 'css_report.json');
+          fs.writeFileSync(reportPath, JSON.stringify(data, null, 2), 'utf-8');
+
           let res = `--- KET QUA PHAN TICH CSS AST ---\n`;
+          res += `[SUCCESS] JSON report da luu tu dong tai: ${reportPath}\n`;
+          res += `(Ban co the goi tool cleanup_code ma khong can truyen json_report_path nua)\n\n`;
           res += `File: ${data.file}\n`;
           res += `Tong so Classes tim thay: ${data.total_classes_found || 0}\n\n`;
           res += `>> DEAD CSS (Ma thua khong duoc dung): ${data.dead_items?.length || 0} muc\n`;
@@ -337,7 +342,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       try {
         const { exec } = await import('child_process');
         const scriptPath = path.join(__dirname, '../backend/parsers/cleanup_code.js');
-        const cmd = `node "${scriptPath}" "${args.action}" "${args.target}" "${args.file_path}" "${args.json_report_path}"`;
+        const reportPath = args.json_report_path || path.join(__dirname, 'css_report.json');
+        const cmd = `node "${scriptPath}" "${args.action}" "${args.target}" "${args.file_path}" "${reportPath}"`;
         
         return new Promise((resolve) => {
            exec(cmd, (error, stdout, stderr) => {
