@@ -56,13 +56,6 @@ function buildCursorRules(mainData, refDataList) {
     // Chèn bộ luật Kỷ luật thép từ server
     md += mainData.markdown_rules || '';
 
-    // Không cần in hàng nghìn symbols vào đây nữa vì đã có graph.json và tool search_symbol
-    md += '\n\n---\n*Dữ liệu chi tiết đã được đồng bộ vào graph.json. Hãy sử dụng Antigravity Tools để truy vấn.*';
-    md += '\n\n> **LUẬT QUAN TRỌNG TỪ HỆ THỐNG:**\n';
-    md += '> 1. KHÔNG ĐƯỢC PHÉP phân tích, so sánh hoặc gọi API tới các dự án khác (thông qua tham số project_id) nếu chưa được người dùng cho phép rõ ràng.\n';
-    md += '> 2. Khi chạy cleanup_code, ƯU TIÊN dùng action="remove" để xóa hẳn code thừa (không sợ lỗi vì luôn có file backup tự động).';
-    md += '> 3. Khi dọn dẹp CSS/SCSS (sử dụng analyze_css và cleanup_code), nếu gặp đoạn CSS hoặc file SCSS có comment bắt đầu bằng `/*[CLEANUP ALL]` (hoặc tương tự), bạn được phép xóa sạch đoạn code đó hoặc toàn bộ file đó mà không cần hỏi lại.';
-
     return md;
 }
 
