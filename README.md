@@ -17,7 +17,6 @@
 | `analyze_css` | Phân tích AST để tìm Dead CSS/SCSS và Duplicate Code |
 | `cleanup_code` | Dọn dẹp tự động — comment hoặc xóa Dead/Duplicate code |
 | `deploy_file` | **Đồng bộ file đã sửa lên host & re-analyze ngầm tự động** |
-| `run_migration` | **Thực thi SQL migration trên DB host — idempotent, có rollback, ghi log** |
 
 ---
 
@@ -177,7 +176,7 @@ project/
 └── .mcp/
     ├── .antigravity                  ← Config: user_id, project_id, token...
     ├── graph.json                    ← Bản đồ dự án (nodes + edges, offline)
-    ├── server.js                     ← MCP Server (10 tools)
+    ├── server.js                     ← MCP Server (9 tools)
     └── sync.js                       ← Sync & build .cursorrules
 ```
 
@@ -211,9 +210,6 @@ Sau khi cài đặt và cấu hình IDE, chỉ cần **nói chuyện với AI**:
 
 "Sửa xong rồi, đồng bộ lên host đi"
 → AI tự gọi deploy_file(file_path="d:\\laragon\\www\\project\\backend\\controllers\\...")
-
-"Thêm cột priority vào bảng booking"
-→ AI tự gọi run_migration(migration_name="add_priority_to_booking_2026_05", sql_up="ALTER TABLE booking ADD COLUMN priority TINYINT DEFAULT 0")
 ```
 
 ---
@@ -263,26 +259,6 @@ Sửa file A → Sửa file B → Sửa file C
   → Tất cả xong?  ✅
     → deploy_file(A) → deploy_file(B) → deploy_file(C)
     → Báo hoàn thành ✅
-```
-
-### `run_migration`
-**Thực thi SQL migration trên database của host** mà không cần credentials, không cần SSH — vì code chạy ngay trên server trong context Yii2 (`Yii::$app->db`).
-
-- **Idempotent**: mỗi `migration_name` chỉ chạy 1 lần duy nhất. Gọi lại → tự động `SKIPPED`
-- **Transaction**: SQL được bao bởi `beginTransaction()` → lỗi là rollback sạch
-- **Retry**: nếu lần trước failed, sửa SQL và gọi lại cùng `migration_name` → hệ thống tự ghi đè log
-- **Audit log**: mọi lần chạy đều được lưu vào bảng `migrations_log` (tự tạo nếu chưa có)
-
-```
-run_migration({
-  migration_name: "add_priority_to_booking_2026_05",
-  sql_up:   "ALTER TABLE booking ADD COLUMN priority TINYINT DEFAULT 0",
-  sql_down: "ALTER TABLE booking DROP COLUMN priority"
-})
-
-→ [✅ OK]      Migration 'add_priority...' da chay thanh cong.
-→ [⏭️ SKIPPED] Da duoc ap dung truoc do. Bo qua.
-→ [❌ FAIL]    Duplicate column name 'priority' | Hint: Sua lai sql_up va retry.
 ```
 
 ---
