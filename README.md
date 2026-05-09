@@ -16,6 +16,7 @@
 | `compare_projects` | So sánh 2 dự án — tìm tính năng còn thiếu |
 | `analyze_css` | Phân tích AST để tìm Dead CSS/SCSS và Duplicate Code |
 | `cleanup_code` | Dọn dẹp tự động — comment hoặc xóa Dead/Duplicate code |
+| `deploy_file` | **Đồng bộ file đã sửa lên host & re-analyze ngầm tự động** |
 
 ---
 
@@ -86,11 +87,6 @@ Mở PowerShell tại **thư mục gốc dự án** của bạn:
 ```powershell
 git clone https://github.com/ngsihuy442/graph-ai.git _ag_tmp; .\_ag_tmp\.mcp\install.ps1;
 Remove-Item _ag_tmp -Recurse -Force
-```
-
-Cline VS CODE:
-```powershell
-gcloud auth application-default login ; gcloud auth application-default set-quota-project gemini-enterprise-493208
 ```
 
 Script sẽ hỏi:
@@ -177,10 +173,13 @@ node .mcp/sync.js --ref 102
 ```
 project/
 ├── .cursorrules                      ← Auto-generated (IDE đọc tự động)
+├── backend/
+│   └── parsers/
+│       └── cleanup_code.js           ← Engine dọn dẹp CSS/JS local
 └── .mcp/
     ├── .antigravity                  ← Config: user_id, project_id, token...
     ├── graph.json                    ← Bản đồ dự án (nodes + edges, offline)
-    ├── server.js                     ← MCP Server (8 tools)
+    ├── server.js                     ← MCP Server (9 tools)
     └── sync.js                       ← Sync & build .cursorrules
 ```
 
@@ -211,6 +210,9 @@ Sau khi cài đặt và cấu hình IDE, chỉ cần **nói chuyện với AI**:
 
 "Dọn sạch các class CSS thừa trong file đó"
 → AI tự gọi cleanup_code(action="comment", target="dead", ...)
+
+"Sửa xong rồi, đồng bộ lên host đi"
+→ AI tự gọi deploy_file(file_path="d:\\laragon\\www\\project\\backend\\controllers\\...")
 ```
 
 ---
@@ -246,6 +248,22 @@ Dọn dẹp tự động dựa trên báo cáo JSON từ `analyze_css`:
 - `target`: `dead`, `duplicate`, hoặc `all`
 - Tự động tạo bản backup trước khi chỉnh sửa
 
+### `deploy_file`
+**Đồng bộ file đã chỉnh sửa hoặc tạo mới lên host**, sau đó **tự động re-analyze ngầm** toàn bộ project và cập nhật graph trong database — không cần upload lại hay bấm nút thủ công.
+
+- Nhận đường dẫn tuyệt đối của file local
+- Tự phát hiện vị trí đúng trong cây thư mục trên host (kể cả khi ZIP extract ra wrapper directory như `odooexam/`)
+- Trả về số bytes đã ghi + nodes/edges count sau re-analyze
+
+> **Quy tắc bắt buộc**: Sau khi **toàn bộ file trong task đã sửa xong**, gọi `deploy_file` một lần cho mỗi file đã thay đổi thành công. Không deploy giữa chừng, không báo hoàn thành trước khi deploy.
+
+```
+Sửa file A → Sửa file B → Sửa file C
+  → Tất cả xong?  ✅
+    → deploy_file(A) → deploy_file(B) → deploy_file(C)
+    → Báo hoàn thành ✅
+```
+
 ---
 
 ## ⚙️ Cấu hình `.antigravity`
@@ -255,6 +273,7 @@ Dọn dẹp tự động dựa trên báo cáo JSON từ `analyze_css`:
   "project_id": "113",
   "api_url": "https://dm02.vinaweb.vn/graph-ai/admin/analyzer/export-api",
   "get_code_url": "https://dm02.vinaweb.vn/graph-ai/admin/analyzer/get-code",
+  "deploy_file_url": "https://dm02.vinaweb.vn/graph-ai/admin/analyzer/deploy-file",
   "token": "your_token_here",
   "user_id": "6",
   "reference_projects": [],
@@ -269,3 +288,4 @@ Dọn dẹp tự động dựa trên báo cáo JSON từ `analyze_css`:
 | `user_id` | ID tài khoản |
 | `reference_projects` | Danh sách ID dự án tham chiếu (để `compare_projects`) |
 | `get_code_url` | Endpoint lấy source code thực tế (dùng bởi `get_symbol_source`) |
+| `deploy_file_url` | Endpoint đồng bộ file lên host (dùng bởi `deploy_file`) |
