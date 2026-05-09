@@ -179,6 +179,20 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
         },
         required: ["action", "target", "file_path"]
       }
+    },
+    {
+      name: "deploy_file",
+      description: "Sau khi sua code local, goi tool nay de dong bo file len host tu dong. PHAI GOI tool nay sau moi lan sua/tao file trong du an.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          file_path: {
+            type: "string",
+            description: "Duong dan TUYET DOI cua file vua sua tren local (vd: d:\\laragon\\www\\odooexam\\backend\\controllers\\SomeController.php)"
+          }
+        },
+        required: ["file_path"]
+      }
     }
   ]
 }));
@@ -380,6 +394,61 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         });
       } catch (e) {
          return text(`Lỗi khi gọi lệnh dọn dẹp: ${e.message}`);
+      }
+    }
+
+    if (name === "deploy_file") {
+      try {
+        const absPath = args.file_path.replace(/\\/g, '/');
+
+        // Xac dinh project root (thu muc chua .mcp)
+        let currentDir = path.dirname(absPath);
+        let projectRoot = null;
+        while (currentDir !== path.parse(currentDir).root) {
+          if (fs.existsSync(path.join(currentDir, '.mcp'))) {
+            projectRoot = currentDir;
+            break;
+          }
+          currentDir = path.dirname(currentDir);
+        }
+        if (!projectRoot) return text(`[deploy_file] Khong tim thay project root (thu muc chua .mcp).`);
+
+        const cfg = getConfig(projectRoot);
+        if (!cfg || !cfg.token) return text(`[deploy_file] Thieu config token trong .antigravity.`);
+
+        // Doc file local
+        if (!fs.existsSync(absPath)) return text(`[deploy_file] File khong ton tai: ${absPath}`);
+        const fileBytes = fs.readFileSync(absPath);
+        const base64Content = fileBytes.toString('base64');
+
+        // Lay relative path tu project root
+        const relativePath = path.relative(projectRoot, absPath).replace(/\\/g, '/');
+
+        // Xay dung deploy URL
+        const deployUrl = cfg.api_url.replace('/export-api', '/deploy-file');
+
+        // POST len host
+        const body = new URLSearchParams({
+          token:      cfg.token,
+          project_id: cfg.project_id || '',
+          file_path:  relativePath,
+          content:    base64Content
+        });
+
+        const response = await fetch(deployUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body: body.toString()
+        });
+
+        const data = await response.json();
+        if (data.status === 'success') {
+          return text(`[deploy_file] OK: ${data.message}\nFile: ${relativePath} (${data.bytes} bytes) luc ${data.timestamp}`);
+        } else {
+          return text(`[deploy_file] FAIL: ${data.message}`);
+        }
+      } catch (e) {
+        return text(`[deploy_file] Loi: ${e.message}`);
       }
     }
 
