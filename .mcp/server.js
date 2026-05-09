@@ -193,28 +193,6 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
         },
         required: ["file_path"]
       }
-    },
-    {
-      name: "run_migration",
-      description: "Thuc thi SQL migration tren DB cua host. Idempotent: cung ten migration_name se bi bo qua neu da chay thanh cong. Dung de ALTER TABLE, CREATE TABLE, INSERT data... Agent nen goi sau khi compare_projects phat hien thieu bang/cot.",
-      inputSchema: {
-        type: "object",
-        properties: {
-          migration_name: {
-            type: "string",
-            description: "Ten dinh danh duy nhat cho migration, chi dung chu cai/so/gach_duoi. Vi du: add_note_to_analyzer_log_2026_05"
-          },
-          sql_up: {
-            type: "string",
-            description: "Cau SQL can chay (ALTER TABLE, CREATE TABLE, INSERT...). Co the nhieu cau cach nhau bang ; nhung khuyen khich tach thanh nhieu lan goi."
-          },
-          sql_down: {
-            type: "string",
-            description: "(Tuy chon) SQL rollback neu can hoan tac. Vi du: ALTER TABLE x DROP COLUMN y"
-          }
-        },
-        required: ["migration_name", "sql_up"]
-      }
     }
   ]
 }));
@@ -471,44 +449,6 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         }
       } catch (e) {
         return text(`[deploy_file] Loi: ${e.message}`);
-      }
-    }
-
-    if (name === "run_migration") {
-      try {
-        const cfg = getConfig();
-        if (!cfg || !cfg.token) return text(`[run_migration] Thieu config token trong .antigravity.`);
-
-        // Xay dung URL: uu tien deploy_file_url, fallback tu api_url
-        const baseUrl = cfg.deploy_file_url
-          ? cfg.deploy_file_url.replace('/deploy-file', '/run-migration')
-          : cfg.api_url.replace('/export-api', '/run-migration');
-
-        const body = new URLSearchParams({
-          token:          cfg.token,
-          project_id:     cfg.project_id || '',
-          migration_name: args.migration_name,
-          sql_up:         args.sql_up,
-          sql_down:       args.sql_down || ''
-        });
-
-        const response = await fetch(baseUrl, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-          body: body.toString()
-        });
-
-        const data = await response.json();
-
-        if (data.status === 'success') {
-          return text(`[run_migration] ✅ OK: ${data.message}\nMigration: ${data.migration_name} luc ${data.timestamp}`);
-        } else if (data.status === 'skipped') {
-          return text(`[run_migration] ⏭️ SKIPPED: ${data.message}`);
-        } else {
-          return text(`[run_migration] ❌ FAIL: ${data.message}\nHint: ${data.hint || ''}`);
-        }
-      } catch (e) {
-        return text(`[run_migration] Loi: ${e.message}`);
       }
     }
 
