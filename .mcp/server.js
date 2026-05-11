@@ -181,17 +181,26 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
       }
     },
     {
-      name: "deploy_file",
-      description: "Sau khi sua code local, goi tool nay de dong bo file len host tu dong. PHAI GOI tool nay sau moi lan sua/tao file trong du an.",
+      name: "deploy_files",
+      description: "Đồng bộ HÀNG LOẠT file (thêm/sửa/xóa) lên host trong 1 lần gọi. GỌI ĐÚNG 1 LẦN VÀO CUỐI TASK.",
       inputSchema: {
         type: "object",
         properties: {
-          file_path: {
-            type: "string",
-            description: "Duong dan TUYET DOI cua file vua sua tren local (vd: d:\\laragon\\www\\odooexam\\backend\\controllers\\SomeController.php)"
+          changes: {
+            type: "array",
+            description: "Danh sách các file thay đổi",
+            items: {
+              type: "object",
+              properties: {
+                action: { type: "string", enum: ["edit", "create", "delete"] },
+                file_path: { type: "string", description: "Đường dẫn tuyệt đối local" },
+                content: { type: "string", description: "Bỏ trống nếu action='delete'. NẾU LÀ EDIT/CREATE, BẮT BUỘC TRUYỀN NỘI DUNG FILE ĐÃ SỬA VÀO ĐÂY (dạng string thường, server sẽ tự chuyển base64)." }
+              },
+              required: ["action", "file_path"]
+            }
           }
         },
-        required: ["file_path"]
+        required: ["changes"]
       }
     }
   ]
@@ -314,11 +323,11 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       let currentDir = path.dirname(args.file_path);
       let projectRoot = null;
       while (currentDir !== path.parse(currentDir).root) {
-          if (fs.existsSync(path.join(currentDir, '.mcp'))) {
-              projectRoot = currentDir;
-              break;
-          }
-          currentDir = path.dirname(currentDir);
+        if (fs.existsSync(path.join(currentDir, '.mcp'))) {
+          projectRoot = currentDir;
+          break;
+        }
+        currentDir = path.dirname(currentDir);
       }
       const relativeFilePath = projectRoot ? path.relative(projectRoot, args.file_path).replace(/\\/g, '/') : args.file_path;
 
@@ -368,41 +377,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       try {
         const { exec } = await import('child_process');
         const scriptPath = path.join(__dirname, '../backend/parsers/cleanup_code.js').replace(/\\/g, '/');
-        
+
         let currentDir = path.dirname(args.file_path);
-        let projectRoot = null;
-        while (currentDir !== path.parse(currentDir).root) {
-            if (fs.existsSync(path.join(currentDir, '.mcp'))) {
-                projectRoot = currentDir;
-                break;
-            }
-            currentDir = path.dirname(currentDir);
-        }
-
-        let reportPath = args.json_report_path || (projectRoot ? path.join(projectRoot, '.mcp', 'css_report.json') : path.join(__dirname, 'css_report.json'));
-        reportPath = reportPath.replace(/\\/g, '/');
-        const cmd = `node "${scriptPath}" "${args.action}" "${args.target}" "${args.file_path}" "${reportPath}"`;
-        
-        return new Promise((resolve) => {
-           exec(cmd, (error, stdout, stderr) => {
-               if (error) {
-                   resolve(text(`Lỗi khi dọn dẹp mã: ${error.message}\n${stderr}`));
-               } else {
-                   resolve(text(stdout));
-               }
-           });
-        });
-      } catch (e) {
-         return text(`Lỗi khi gọi lệnh dọn dẹp: ${e.message}`);
-      }
-    }
-
-    if (name === "deploy_file") {
-      try {
-        const absPath = args.file_path.replace(/\\/g, '/');
-
-        // Xac dinh project root (thu muc chua .mcp)
-        let currentDir = path.dirname(absPath);
         let projectRoot = null;
         while (currentDir !== path.parse(currentDir).root) {
           if (fs.existsSync(path.join(currentDir, '.mcp'))) {
@@ -411,44 +387,111 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           }
           currentDir = path.dirname(currentDir);
         }
-        if (!projectRoot) return text(`[deploy_file] Khong tim thay project root (thu muc chua .mcp).`);
 
-        const cfg = getConfig(projectRoot);
-        if (!cfg || !cfg.token) return text(`[deploy_file] Thieu config token trong .antigravity.`);
+        let reportPath = args.json_report_path || (projectRoot ? path.join(projectRoot, '.mcp', 'css_report.json') : path.join(__dirname, 'css_report.json'));
+        reportPath = reportPath.replace(/\\/g, '/');
+        const cmd = `node "${scriptPath}" "${args.action}" "${args.target}" "${args.file_path}" "${reportPath}"`;
 
-        // Doc file local
-        if (!fs.existsSync(absPath)) return text(`[deploy_file] File khong ton tai: ${absPath}`);
-        const fileBytes = fs.readFileSync(absPath);
-        const base64Content = fileBytes.toString('base64');
+        return new Promise((resolve) => {
+          exec(cmd, (error, stdout, stderr) => {
+            if (error) {
+              resolve(text(`Lỗi khi dọn dẹp mã: ${error.message}\n${stderr}`));
+            } else {
+              resolve(text(stdout));
+            }
+          });
+        });
+      } catch (e) {
+        return text(`Lỗi khi gọi lệnh dọn dẹp: ${e.message}`);
+      }
+    }
 
-        // Lay relative path tu project root
-        const relativePath = path.relative(projectRoot, absPath).replace(/\\/g, '/');
+    if (name === "deploy_files") {
+      try {
+        const changes = args.changes;
+        
+        if (!changes || !Array.isArray(changes) || changes.length === 0) {
+            return text(`[deploy_files] Lỗi: Không có danh sách file nào được cung cấp.`);
+        }
 
-        // Xay dung deploy URL
+        let projectRoot = null;
+        let cfg = null;
+        const processedChanges = [];
+
+        // 1. Duyệt mảng các file thay đổi
+        for (const change of changes) {
+            const absPath = change.file_path.replace(/\\/g, '/');
+            const action = change.action || 'edit';
+            let base64Content = "";
+
+            // Xác định projectRoot từ đường dẫn của file đầu tiên
+            if (!projectRoot) {
+                let currentDir = path.dirname(absPath);
+                while (currentDir !== path.parse(currentDir).root) {
+                    if (fs.existsSync(path.join(currentDir, '.mcp'))) {
+                        projectRoot = currentDir;
+                        break;
+                    }
+                    currentDir = path.dirname(currentDir);
+                }
+                if (!projectRoot) return text(`[deploy_files] Khong tim thay project root cho file: ${absPath}`);
+                
+                cfg = getConfig(projectRoot);
+                if (!cfg || !cfg.token) return text(`[deploy_files] Thieu config token trong .antigravity.`);
+            }
+
+            // Tính toán relative path để gửi lên host
+            const relativePath = path.relative(projectRoot, absPath).replace(/\\/g, '/');
+
+            // Đọc nội dung file từ local (nếu không phải là xóa file)
+            if (action !== 'delete') {
+                if (!fs.existsSync(absPath)) {
+                    // Nếu là action 'create' nhưng file vật lý chưa kịp tạo, ta lấy content Agent gửi xuống
+                    if (change.content) {
+                        base64Content = Buffer.from(change.content).toString('base64');
+                    } else {
+                        return text(`[deploy_files] Loi: File khong ton tai o local va khong co noi dung truyen vao: ${absPath}`);
+                    }
+                } else {
+                    // Đọc nội dung file vật lý (Cách an toàn nhất, tránh mất code do Agent ngắt dòng)
+                    const fileBytes = fs.readFileSync(absPath);
+                    base64Content = fileBytes.toString('base64');
+                }
+            }
+
+            processedChanges.push({
+                action: action,
+                file_path: relativePath,
+                content: base64Content
+            });
+        }
+
+        // 2. Gửi cục data mảng (đã base64) lên host
         const deployUrl = cfg.api_url.replace('/export-api', '/deploy-file');
-
-        // POST len host
+        
         const body = new URLSearchParams({
-          token:      cfg.token,
-          project_id: cfg.project_id || '',
-          file_path:  relativePath,
-          content:    base64Content
+            token: cfg.token,
+            project_id: cfg.project_id || '',
+            changes: JSON.stringify(processedChanges) // Stringify cái mảng lại
         });
 
         const response = await fetch(deployUrl, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-          body: body.toString()
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: body.toString()
         });
 
         const data = await response.json();
+        
         if (data.status === 'success') {
-          return text(`[deploy_file] OK: ${data.message}\nFile: ${relativePath} (${data.bytes} bytes) luc ${data.timestamp}`);
+            return text(`[deploy_files] BATCH DEPLOY THÀNH CÔNG: ${data.message}\n` + processedChanges.map(c => `- [${c.action.toUpperCase()}] ${c.file_path}`).join('\n'));
+        } else if (data.status === 'partial') {
+             return text(`[deploy_files] CẢNH BÁO (Lưu File OK nhưng Analyze ngầm bị lỗi): ${data.message}\n` + processedChanges.map(c => `- [${c.action.toUpperCase()}] ${c.file_path}`).join('\n'));
         } else {
-          return text(`[deploy_file] FAIL: ${data.message}`);
+            return text(`[deploy_files] THẤT BẠI TỪ HOST: ${data.message}`);
         }
       } catch (e) {
-        return text(`[deploy_file] Loi: ${e.message}`);
+          return text(`[deploy_files] Lỗi thực thi cục bộ: ${e.message}`);
       }
     }
 
