@@ -212,6 +212,18 @@ Sau khi cài đặt và cấu hình IDE, chỉ cần **nói chuyện với AI**:
 → AI tự gọi deploy_file(file_path="d:\\laragon\\www\\project\\backend\\controllers\\...")
 ```
 
+Cách thực hiện sao chép chức năng sang dự án mới:
+
+### `B1: Thực hiện phân tích để đưa ra plan chi tiết và mức độ thay đổi mã nguồn`
+```
+Dự án hiện tại chưa tích hợp phần dịch GAS, phân tích #105 và sử dụng analyze_impact để đánh giá việc tích hợp GAS sang dự án hiện tại nhé
+```
+### `B2: Thực hiện thay đổi mã nguồn dựa theo phân tích trước đó`
+```
+Tiến hành thêm GoogleGasTranslate và thực hiện thay đổi cho Các controller giống như #105, các phần không có thay đổi so với #105 thì giữ nguyên sử dụng GeminiTranslate
+```
+Lưu ý: Một số IDE đã có chức năng tự động soạn Plan và tiến hành luôn theo phân tích mã nguồn như Antigravity phiên bản mới. Các IDE có khả năng phân tích và đưa ra Plan khá tốt. Tuy nhiên 1 số extensions tích hợp vào VS code như Cline thì khả năng này chưa được hoàn thiện cho lắm.
+
 ---
 
 ## 🛠️ Chi tiết các Tool
