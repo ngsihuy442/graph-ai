@@ -4,6 +4,7 @@ import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprot
 import fs from 'fs';
 import { fileURLToPath } from 'url';
 import path from 'path';
+import zlib from 'zlib';
 process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -178,6 +179,18 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
           file_path: { type: "string", description: "BAT BUOC la duong dan TUYET DOI toi file can don dep tren local (vd: d:\\laragon\\www\\pacific\\bundle\\css\\style.scss)" }
         },
         required: ["action", "target", "file_path"]
+      }
+    },
+    {
+      name: "unpack_bundle",
+      description: "Giai nen file HTML dang bundle (dinh dang __bundler/manifest) thanh HTML thuong va CSS tach biet de model co the doc bang view_file. Dung khi SOURCE la file bundle (Vinaweb.html, Figma export, v.v). Tra ve duong dan cac file da giai nen.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          input_file: { type: "string", description: "Duong dan TUYET DOI toi file bundle can giai nen (vd: d:\\laragon\\www\\project\\source_ui\\Vinaweb.html)" },
+          output_dir:  { type: "string", description: "TUY CHON: Thu muc dau ra. Mac dinh: cung thu muc voi input file." }
+        },
+        required: ["input_file"]
       }
     },
     {
@@ -403,6 +416,127 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         });
       } catch (e) {
         return text(`Lỗi khi gọi lệnh dọn dẹp: ${e.message}`);
+      }
+    }
+
+    if (name === "unpack_bundle") {
+      try {
+        const inputPath = args.input_file.replace(/\\/g, '/');
+        if (!fs.existsSync(inputPath)) {
+          return text(`[unpack_bundle] File khong ton tai: ${inputPath}`);
+        }
+
+        const html = fs.readFileSync(inputPath, 'utf8');
+
+        // Detect bundle format
+        const manifestMatch = html.match(/<script type="__bundler\/manifest">([\s\S]*?)<\/script>/i);
+        const templateMatch = html.match(/<script type="__bundler\/template">([\s\S]*?)<\/script>/i);
+
+        if (!manifestMatch || !templateMatch) {
+          return text(`[unpack_bundle] FILE NAY KHONG PHAI BUNDLE.\nKhong tim thay <script type="__bundler/manifest">.\nDay la HTML thuan — doc truc tiep bang view_file la duoc.`);
+        }
+
+        let manifest, template;
+        try {
+          manifest = JSON.parse(manifestMatch[1].trim());
+          template = JSON.parse(templateMatch[1].trim());
+        } catch (e) {
+          return text(`[unpack_bundle] Loi parse JSON: ${e.message}`);
+        }
+
+        const uuids = Object.keys(manifest);
+        const outDir = args.output_dir
+          ? args.output_dir.replace(/\\/g, '/')
+          : path.dirname(inputPath);
+        const baseName = path.basename(inputPath, path.extname(inputPath));
+
+        // Decompress tung asset
+        const decodedAssets = {};
+        for (const uuid of uuids) {
+          const entry = manifest[uuid];
+          try {
+            const binaryBuffer = Buffer.from(entry.data, 'base64');
+            let finalBuffer = binaryBuffer;
+            if (entry.compressed) {
+              finalBuffer = zlib.gunzipSync(binaryBuffer);
+            }
+            const isText = entry.mime && (
+              entry.mime.includes('text') ||
+              entry.mime.includes('javascript') ||
+              entry.mime.includes('json') ||
+              entry.mime.includes('css') ||
+              entry.mime.includes('svg') ||
+              entry.mime.includes('html')
+            );
+            decodedAssets[uuid] = {
+              content: isText ? finalBuffer.toString('utf8') : finalBuffer.toString('base64'),
+              mime: entry.mime,
+              isText
+            };
+          } catch (e) {
+            decodedAssets[uuid] = { content: '', mime: entry.mime, isText: true };
+          }
+        }
+
+        // Extract CSS rieng ra file
+        const cssAssets = Object.entries(decodedAssets)
+          .filter(([, a]) => a.isText && a.mime && a.mime.includes('css'));
+        const jsAssets = Object.entries(decodedAssets)
+          .filter(([, a]) => a.isText && a.mime && a.mime.includes('javascript'));
+
+        let output = typeof template === 'string' ? template : JSON.stringify(template);
+        for (const uuid of uuids) {
+          const asset = decodedAssets[uuid];
+          const regex = new RegExp(uuid.replace(/-/g, '\\-'), 'g');
+          if (!asset.isText) {
+            output = output.replace(regex, `data:${asset.mime};base64,${asset.content}`);
+          } else {
+            output = output.replace(regex, `data:${asset.mime};base64,${Buffer.from(asset.content).toString('base64')}`);
+          }
+        }
+
+        // Ghi file HTML da giai nen
+        const htmlOut = path.join(outDir, `${baseName}-unpacked.html`);
+        fs.writeFileSync(htmlOut, output, 'utf8');
+
+        // Ghi file CSS tach biet tu manifest assets
+        let cssOut = null;
+        if (cssAssets.length > 0) {
+          cssOut = path.join(outDir, `${baseName}-styles.css`);
+          const allCss = cssAssets
+            .map(([uuid, a]) => `/* === Asset: ${uuid} === */\n${a.content}`)
+            .join('\n\n');
+          fs.writeFileSync(cssOut, allCss, 'utf8');
+        }
+
+        // BONUS: Extract <style> blocks tu HTML da render (CSS co the duoc embed inline)
+        const styleMatches = [...output.matchAll(/<style[^>]*>([\s\S]*?)<\/style>/gi)];
+        if (styleMatches.length > 0 && !cssOut) {
+          cssOut = path.join(outDir, `${baseName}-styles.css`);
+          const extractedCss = styleMatches
+            .map((m, i) => `/* === Inline <style> block #${i+1} === */\n${m[1].trim()}`)
+            .join('\n\n');
+          fs.writeFileSync(cssOut, extractedCss, 'utf8');
+        } else if (styleMatches.length > 0 && cssOut) {
+          // Append inline styles vao cuoi file CSS
+          const extractedCss = styleMatches
+            .map((m, i) => `/* === Inline <style> block #${i+1} === */\n${m[1].trim()}`)
+            .join('\n\n');
+          fs.appendFileSync(cssOut, '\n\n' + extractedCss, 'utf8');
+        }
+
+        let result = `[unpack_bundle] THANH CONG!\n\n`;
+        result += `INPUT:  ${inputPath}\n`;
+        result += `OUTPUT HTML: ${htmlOut} (${(fs.statSync(htmlOut).size / 1024).toFixed(1)} KB)\n`;
+        if (cssOut) result += `OUTPUT CSS:  ${cssOut} (${(fs.statSync(cssOut).size / 1024).toFixed(1)} KB)\n`;
+        result += `\nAssets giai nen: ${uuids.length} tong / ${cssAssets.length} CSS / ${jsAssets.length} JS\n`;
+        result += `\nBuoc tiep theo:\n`;
+        result += `  view_file("${htmlOut}") — xem HTML da giai nen\n`;
+        if (cssOut) result += `  view_file("${cssOut}") — xem toan bo CSS goc\n`;
+
+        return text(result);
+      } catch (e) {
+        return text(`[unpack_bundle] Loi: ${e.message}`);
       }
     }
 
