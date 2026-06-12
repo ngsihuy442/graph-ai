@@ -457,8 +457,14 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           try {
             const binaryBuffer = Buffer.from(entry.data, 'base64');
             let finalBuffer = binaryBuffer;
-            if (entry.compressed) {
-              finalBuffer = zlib.gunzipSync(binaryBuffer);
+            const isGzip = entry.compressed || (binaryBuffer[0] === 0x1f && binaryBuffer[1] === 0x8b);
+            if (isGzip) {
+              try {
+                finalBuffer = zlib.gunzipSync(binaryBuffer);
+              } catch (e) {
+                // Khong phai gzip that su, giu nguyen buffer goc
+                finalBuffer = binaryBuffer;
+              }
             }
             const isText = entry.mime && (
               entry.mime.includes('text') ||
@@ -484,6 +490,28 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         const jsAssets = Object.entries(decodedAssets)
           .filter(([, a]) => a.isText && a.mime && a.mime.includes('javascript'));
 
+        // Extract CSS-in-JS: tim cac template literal CSS trong JS assets
+        // Pattern: const CSS = `...` hoac const css = `...` hoac CSS-in-JS kieu styled-components
+        const cssInJsBlocks = [];
+        for (const [uuid, asset] of jsAssets) {
+          if (!asset.content) continue;
+          // Pattern 1: const CSS = `...` hoac const someCSS = `...` hoac const cssStyles = `...`
+          // Bao gom: CSS, someCSS, cssBlock, STYLES, cssString...
+          const templateMatches = [...asset.content.matchAll(/const\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*=\s*`([\s\S]*?)`\s*;/g)];
+          for (const m of templateMatches) {
+            const varName = m[1];
+            const cssContent = m[2].trim();
+            // Chi lay neu ten bien lien quan CSS hoac noi dung co dang CSS thuc su
+            const looksLikeCss = cssContent.includes('{') && cssContent.includes('}') && cssContent.includes(':');
+            const cssVarName = /css|style|CSS|STYLE/i.test(varName);
+            if (cssContent.length > 100 && (looksLikeCss || cssVarName)) {
+              cssInJsBlocks.push(`/* === CSS-in-JS from asset: ${uuid} (var: ${varName}) === */\n${cssContent}`);
+            }
+          }
+          // Pattern 2: .textContent = CSS hoac el.textContent = CSS — chi lay ten bien
+          // (truong hop nay CSS da duoc extract o pattern 1, bo qua)
+        }
+
         let output = typeof template === 'string' ? template : JSON.stringify(template);
         for (const uuid of uuids) {
           const asset = decodedAssets[uuid];
@@ -501,11 +529,17 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
         // Ghi file CSS tach biet tu manifest assets
         let cssOut = null;
-        if (cssAssets.length > 0) {
+        const hasCssContent = cssAssets.length > 0 || cssInJsBlocks.length > 0;
+        if (hasCssContent) {
           cssOut = path.join(outDir, `${baseName}-styles.css`);
-          const allCss = cssAssets
+          let allCss = cssAssets
             .map(([uuid, a]) => `/* === Asset: ${uuid} === */\n${a.content}`)
             .join('\n\n');
+          if (cssInJsBlocks.length > 0) {
+            if (allCss) allCss += '\n\n';
+            allCss += `/* ============================================\n   CSS-in-JS — extracted from JS assets\n   ============================================ */\n\n`;
+            allCss += cssInJsBlocks.join('\n\n');
+          }
           fs.writeFileSync(cssOut, allCss, 'utf8');
         }
 
@@ -530,6 +564,9 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         result += `OUTPUT HTML: ${htmlOut} (${(fs.statSync(htmlOut).size / 1024).toFixed(1)} KB)\n`;
         if (cssOut) result += `OUTPUT CSS:  ${cssOut} (${(fs.statSync(cssOut).size / 1024).toFixed(1)} KB)\n`;
         result += `\nAssets giai nen: ${uuids.length} tong / ${cssAssets.length} CSS / ${jsAssets.length} JS\n`;
+        if (cssInJsBlocks.length > 0) {
+          result += `CSS-in-JS blocks extracted: ${cssInJsBlocks.length} (tu ${jsAssets.length} JS assets)\n`;
+        }
         result += `\nBuoc tiep theo:\n`;
         result += `  view_file("${htmlOut}") — xem HTML da giai nen\n`;
         if (cssOut) result += `  view_file("${cssOut}") — xem toan bo CSS goc\n`;
