@@ -193,6 +193,20 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
         required: ["input_file"]
       }
     },
+    
+    {
+      name: "rescue_scss",
+      description: "🚑 Phục hồi file SCSS bị hỏng từ file CSS đang chạy tốt. Trích xuất biến từ SCSS hỏng, map ngược vào CSS phẳng và dựng lại cấu trúc lồng nhau (Nesting).",
+      inputSchema: {
+        type: "object",
+        properties: {
+          good_css_path: { type: "string", description: "Đường dẫn file CSS đang hiển thị đúng" },
+          broken_scss_path: { type: "string", description: "Đường dẫn file SCSS bị hỏng (để cào lại biến)" },
+          output_path: { type: "string", description: "Đường dẫn lưu file SCSS kết quả phục hồi" }
+        },
+        required: ["good_css_path", "broken_scss_path", "output_path"]
+      }
+    },
     {
       name: "deploy_files",
       description: "Đồng bộ HÀNG LOẠT file (thêm/sửa/xóa) lên host trong 1 lần gọi. GỌI ĐÚNG 1 LẦN VÀO CUỐI TASK.",
@@ -574,6 +588,25 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         return text(result);
       } catch (e) {
         return text(`[unpack_bundle] Loi: ${e.message}`);
+      }
+    }
+
+    
+    if (name === "rescue_scss") {
+      try {
+        const cp = require('child_process');
+        const scriptPath = path.join(__dirname, 'rescue_scss.js');
+        return new Promise((resolve) => {
+          cp.exec(`node "${scriptPath}" "${args.good_css_path}" "${args.broken_scss_path}" "${args.output_path}"`, (error, stdout, stderr) => {
+            if (error) {
+              resolve(text(`Lỗi khi phục hồi SCSS: ${error.message}\n${stderr}`));
+            } else {
+              resolve(text(stdout));
+            }
+          });
+        });
+      } catch (e) {
+        return text(`Lỗi: ${e.message}`);
       }
     }
 
