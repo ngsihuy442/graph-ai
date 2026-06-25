@@ -38,7 +38,7 @@ $McpTarget = Join-Path (Get-Location) ".mcp"
 
 if (-not (Test-Path $McpTarget)) { New-Item -ItemType Directory -Path $McpTarget | Out-Null }
 
-$copyFiles = @("server.js", "sync.js", "package.json", "cleanup_code.js", "inline_style_extractor.js")
+$copyFiles = @("server.js", "sync.js", "package.json", "cleanup_code.js", "inline_style_extractor.js",  "rescue_scss.js")
 foreach ($f in $copyFiles) {
     $src = Join-Path $McpSource $f
     if (Test-Path $src) {
