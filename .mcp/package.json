@@ -3,6 +3,10 @@
   "version": "2.0.0",
   "type": "module",
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.0.0"
+    "@modelcontextprotocol/sdk": "^1.0.0",
+    "postcss": "^8.4.38",
+    "postcss-scss": "^4.0.9",
+    "tree-sitter": "^0.21.0",
+    "tree-sitter-php": "^0.22.8"
   }
 }
