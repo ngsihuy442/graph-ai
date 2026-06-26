@@ -5,15 +5,51 @@ import fs from 'fs';
 import { fileURLToPath } from 'url';
 import path from 'path';
 import zlib from 'zlib';
-process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
+import { execFile } from 'child_process';
+// process.env.NODE_TLS_REJECT_UNAUTHORIZED removed for security
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+const metrics = {
+  tool_calls: {},
+  execution_times: [],
+  errors: []
+};
+setInterval(() => {
+  try {
+    fs.writeFileSync(path.join(__dirname, 'metrics.json'), JSON.stringify(metrics, null, 2));
+  } catch (e) {}
+}, 60000);
+
+const logger = {
+  info: (msg, data = {}) => {
+    const logLine = JSON.stringify({ level: 'info', timestamp: new Date().toISOString(), message: msg, ...data }) + '\n';
+    fs.appendFileSync(path.join(__dirname, 'combined.log'), logLine);
+  },
+  error: (msg, data = {}) => {
+    const logLine = JSON.stringify({ level: 'error', timestamp: new Date().toISOString(), message: msg, ...data }) + '\n';
+    fs.appendFileSync(path.join(__dirname, 'error.log'), logLine);
+    fs.appendFileSync(path.join(__dirname, 'combined.log'), logLine);
+  }
+};
+
+function readJSONFile(filePath) {
+  let raw = fs.readFileSync(filePath, 'utf-8');
+  if (raw.charCodeAt(0) === 0xFEFF) raw = raw.slice(1);
+  return JSON.parse(raw);
+}
+
+function validatePath(p, projectRoot) {
+  if (!p || typeof p !== 'string') throw new Error('Invalid path');
+  const normalized = path.normalize(p);
+  if (projectRoot && !normalized.startsWith(path.normalize(projectRoot))) throw new Error('Path outside project');
+  return normalized;
+}
+
 function getConfig(projectRoot = null) {
   const configPath = projectRoot ? path.join(projectRoot, '.mcp', '.antigravity') : path.join(__dirname, '.antigravity');
   if (!fs.existsSync(configPath)) return null;
-  let raw = fs.readFileSync(configPath, 'utf-8');
-  if (raw.charCodeAt(0) === 0xFEFF) raw = raw.slice(1);
-  return JSON.parse(raw);
+  return readJSONFile(configPath);
 }
 
 // Hàm hỗ trợ quét tất cả các file trong thư mục (bỏ qua các thư mục rác)
@@ -36,36 +72,50 @@ function walkSync(dir, filelist = []) {
   return filelist;
 }
 
+let graphCache = null;
+let graphCacheTime = 0;
+
+function getGraphDataFromCache(projectId, allData) {
+  const pid = projectId || getConfig()?.project_id;
+  const project = allData.projects.find(p => p.id == pid || p.name == projectId);
+  if (project) {
+    return {
+      projectId: project.id,
+      projectName: project.name,
+      nodes: project.nodes,
+      edges: project.edges,
+      mdRules: ""
+    };
+  }
+  throw new Error("Project not found in cache");
+}
+
 async function fetchGraphFromHost(projectId) {
   const graphPath = path.join(__dirname, 'graph.json');
 
-  // Ưu tiên đọc từ file cục bộ để tốc độ nhanh nhất
   if (fs.existsSync(graphPath)) {
     try {
-      const allData = JSON.parse(fs.readFileSync(graphPath, 'utf-8'));
-      const pid = projectId || getConfig()?.project_id;
-
-      // Tìm dự án trong file projects
-      const project = allData.projects.find(p => p.id == pid || p.name == projectId);
-      if (project) {
-        return {
-          projectId: project.id,
-          projectName: project.name,
-          nodes: project.nodes,
-          edges: project.edges,
-          mdRules: "" // Rules đã nằm trong .cursorrules
-        };
+      const mtimeMs = fs.statSync(graphPath).mtimeMs;
+      if (graphCache && graphCacheTime === mtimeMs) {
+        return getGraphDataFromCache(projectId, graphCache);
       }
+      const allData = readJSONFile(graphPath);
+      graphCache = allData;
+      graphCacheTime = mtimeMs;
+      return getGraphDataFromCache(projectId, allData);
     } catch (e) {
-      console.error("Lỗi đọc graph.json, chuyển sang gọi API...");
+      logger.error("Lỗi đọc graph.json, chuyển sang gọi API...", { error: e.message });
     }
   }
 
-  // Fallback: Gọi API nếu không có file graph.json (Giữ nguyên logic cũ của bạn)
   const cfg = getConfig();
   const pid = projectId || cfg.project_id || 'latest';
   const url = `${cfg.api_url}?id=${pid}&token=${cfg.token}&user_id=${cfg.user_id || ''}`;
-  const res = await fetch(url);
+  
+  // Custom fetch with rejectUnauthorized config
+  const https = await import('https');
+  const agent = new https.Agent({ rejectUnauthorized: cfg.reject_unauthorized !== false });
+  const res = await fetch(url, { agent });
   const data = await res.json();
   return {
     projectId: data.project_id,
@@ -83,6 +133,14 @@ const server = new Server(
 
 server.setRequestHandler(ListToolsRequestSchema, async () => ({
   tools: [
+    {
+      name: "get_rules",
+      description: "Load Antigravity AI rules and directives from .cursorrules file. CALL THIS FIRST in every new session to understand project protocols.",
+      inputSchema: {
+        type: "object",
+        properties: {}
+      }
+    },
     {
       name: "search_symbol",
       description: "Tim kiem ham, class hoac tinh nang. Co the dung project_id de tim trong du an khac.",
@@ -233,9 +291,19 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
   ]
 }));
 
-server.setRequestHandler(CallToolRequestSchema, async (request) => {
+const originalHandler = async (request) => {
   const { name, arguments: args } = request.params;
   try {
+    // === NEW TOOL: get_rules ===
+    if (name === "get_rules") {
+      const rulesPath = path.join(__dirname, '..', '.cursorrules');
+      if (fs.existsSync(rulesPath)) {
+        const content = fs.readFileSync(rulesPath, 'utf8');
+        return text(`[get_rules] Successfully loaded .cursorrules (${content.length} characters)\n\n${content}`);
+      }
+      return text(`[get_rules] No .cursorrules file found in project root. This project may not have Antigravity rules configured.`);
+    }
+
     if (name === "search_symbol") {
       const { nodes, projectName, projectId } = await fetchGraphFromHost(args.project_id);
       const kw = (args.keyword || '').toLowerCase();
@@ -251,11 +319,15 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     }
 
     if (name === "search_full_text") {
-      const keyword = args.keyword.toLowerCase();
+      const queryKeyword = args.keyword || args.Query;
+      if (!queryKeyword) {
+        return text("Lỗi: Thiếu tham số 'keyword' hoặc 'Query' để tìm kiếm.");
+      }
+      const keyword = queryKeyword.toLowerCase();
       const extFilter = args.file_extension ? args.file_extension.toLowerCase() : null;
       const projectRoot = path.join(__dirname, '..'); // Lùi 1 cấp từ thư mục .mcp ra root dự án
 
-      let res = `Ket qua full-text cho tu khoa '${args.keyword}':\n\n`;
+      let res = `Ket qua full-text cho tu khoa '${queryKeyword}':\n\n`;
       let matchCount = 0;
       const maxResults = 50; // Giới hạn 50 dòng để AI không bị ngợp
 
@@ -267,9 +339,12 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         if (extFilter && !file.toLowerCase().endsWith(extFilter)) continue;
 
         // Bỏ qua các file không phải văn bản
-        if (file.match(/\.(png|jpg|jpeg|gif|ico|zip|pdf|exe|dll|ttf|woff)$/i)) continue;
+        if (file.match(/\.(png|jpg|jpeg|gif|ico|zip|pdf|exe|dll|ttf|woff|log)$/i) || file.endsWith('package-lock.json') || file.endsWith('composer.lock')) continue;
 
         try {
+          const stat = fs.statSync(file);
+          if (stat.size > 1024 * 1024) continue; // Skip files > 1MB
+
           const content = fs.readFileSync(file, 'utf-8');
           const lines = content.split('\n');
 
@@ -289,7 +364,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         }
       }
 
-      if (matchCount === 0) return text(`Khong tim thay '${args.keyword}' trong ruot bat ky file nao.`);
+      if (matchCount === 0) return text(`Khong tim thay '${queryKeyword}' trong ruot bat ky file nao.`);
       return text(res);
     }
 
@@ -386,10 +461,17 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           res += `\n>> DUPLICATED CSS (Ma lap thuoc tinh): ${data.duplicates?.length || 0} muc\n`;
           if (data.duplicates?.length) {
             data.duplicates.slice(0, 50).forEach(d => {
-              res += `- Lap giua Line ${d.lines[0]} va Line ${d.lines[1]}\n`;
-              res += `  Selector 1: ${d.selectors[0]}\n`;
-              res += `  Selector 2: ${d.selectors[1]}\n`;
+              if (d.lines && d.lines.length >= 2) {
+                res += `- Lap giua Line ${d.lines[0]} va Line ${d.lines[1]}\n`;
+                if (d.selectors && d.selectors.length >= 2) {
+                  res += `  Selector 1: ${d.selectors[0]}\n`;
+                  res += `  Selector 2: ${d.selectors[1]}\n`;
+                }
+              } else {
+                res += `- Lap thuoc tinh [${d.prop}] tai Line ${d.line} - Selector: ${d.selector}\n`;
+              }
             });
+            if (data.duplicates.length > 50) res += `... (Va ${data.duplicates.length - 50} muc khac)\n`;
           }
           return text(res);
         } else {
@@ -402,7 +484,6 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
     if (name === "cleanup_code") {
       try {
-        const { exec } = await import('child_process');
         const scriptPath = path.join(__dirname, '../backend/parsers/cleanup_code.js').replace(/\\/g, '/');
 
         let currentDir = path.dirname(args.file_path);
@@ -417,10 +498,13 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
         let reportPath = args.json_report_path || (projectRoot ? path.join(projectRoot, '.mcp', 'css_report.json') : path.join(__dirname, 'css_report.json'));
         reportPath = reportPath.replace(/\\/g, '/');
-        const cmd = `node "${scriptPath}" "${args.action}" "${args.target}" "${args.file_path}" "${reportPath}"`;
+        
+        // Validate paths to prevent traversal
+        const safeFilePath = validatePath(args.file_path, projectRoot);
+        const safeReportPath = validatePath(reportPath, projectRoot);
 
         return new Promise((resolve) => {
-          exec(cmd, (error, stdout, stderr) => {
+          execFile("node", [scriptPath, args.action, args.target, safeFilePath, safeReportPath], (error, stdout, stderr) => {
             if (error) {
               resolve(text(`Lỗi khi dọn dẹp mã: ${error.message}\n${stderr}`));
             } else {
@@ -477,6 +561,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
                 finalBuffer = zlib.gunzipSync(binaryBuffer);
               } catch (e) {
                 // Khong phai gzip that su, giu nguyen buffer goc
+                logger.error(`Failed to decompress asset ${uuid}: ${e.message}`);
                 finalBuffer = binaryBuffer;
               }
             }
@@ -594,10 +679,9 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     
     if (name === "rescue_scss") {
       try {
-        const cp = require('child_process');
         const scriptPath = path.join(__dirname, 'rescue_scss.js');
         return new Promise((resolve) => {
-          cp.exec(`node "${scriptPath}" "${args.good_css_path}" "${args.broken_scss_path}" "${args.output_path}"`, (error, stdout, stderr) => {
+          execFile("node", [scriptPath, args.good_css_path, args.broken_scss_path, args.output_path], (error, stdout, stderr) => {
             if (error) {
               resolve(text(`Lỗi khi phục hồi SCSS: ${error.message}\n${stderr}`));
             } else {
@@ -701,6 +785,24 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
     throw new Error(`Tool not found: ${name}`);
   } catch (e) { return text(`Error: ${e.message}`); }
+};
+
+server.setRequestHandler(CallToolRequestSchema, async (request) => {
+  const start = Date.now();
+  const name = request.params.name;
+  try {
+    const res = await originalHandler(request);
+    const duration = Date.now() - start;
+    metrics.execution_times.push({ tool: name, duration, timestamp: Date.now() });
+    metrics.tool_calls[name] = (metrics.tool_calls[name] || 0) + 1;
+    if (metrics.execution_times.length > 500) metrics.execution_times.shift();
+    return res;
+  } catch (e) {
+    metrics.errors.push({ tool: name, error: e.message, timestamp: Date.now() });
+    if (metrics.errors.length > 500) metrics.errors.shift();
+    logger.error(`Tool error: ${name}`, { error: e.message, stack: e.stack });
+    return text(`Error: ${e.message}`);
+  }
 });
 
 function text(t) { return { content: [{ type: "text", text: t }] }; }
