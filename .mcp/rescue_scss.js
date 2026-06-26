@@ -36,12 +36,13 @@ try {
     // Sắp xếp varMap theo độ dài value giảm dần để replace chính xác (VD: "#fff" trước, "0" sau - mặc dù ta nên bỏ qua các biến quá ngắn)
     const sortedVars = Array.from(varMap.entries()).sort((a, b) => b[0].length - a[0].length);
 
+    const SKIP_VALUES = new Set(['0', '1', 'none', 'auto', 'inherit', 'initial', 'unset', 'solid', 'block', 'inline', 'flex', 'absolute', 'relative', 'transparent']);
+    const MIN_LENGTH = 3;
+
     rootCss.walkDecls(decl => {
         let newVal = decl.value;
         for (const [val, varName] of sortedVars) {
-            // Bỏ qua các giá trị quá phổ thông/ngắn (ví dụ: 0, 1, solid, block) để tránh thay thế sai logic
-            if (val.length <= 2 && !val.startsWith('#')) continue;
-            if (['solid', 'block', 'none', 'inline', 'flex', 'absolute', 'relative', 'transparent'].includes(val.toLowerCase())) continue;
+            if (SKIP_VALUES.has(val.toLowerCase()) || (val.length < MIN_LENGTH && !val.startsWith('#'))) continue;
 
             if (newVal.includes(val)) {
                 // Thoát các ký tự đặc biệt của regex
