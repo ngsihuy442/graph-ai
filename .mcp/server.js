@@ -228,13 +228,15 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
     },
     {
       name: "cleanup_code",
-      description: "Don dep ma nguon (Dead code hoac Duplicate) bang cach comment hoac xoa truc tiep file. Ho tro ca CSS, SCSS, va JS.",
+      description: "Don dep ma nguon (Dead code hoac Duplicate) bang cach comment hoac xoa truc tiep file. Ho tro ca CSS, SCSS, va JS. MAC DINH luon chay dry_run=true truoc de xem preview, sau do chay lai voi dry_run=false de thuc thi that.",
       inputSchema: {
         type: "object",
         properties: {
           action: { type: "string", description: "Hanh dong: 'comment' hoac 'remove' (KHUYẾN KHÍCH DÙNG 'remove' để xóa hẳn cho sạch, vì hệ thống luôn tự động tạo file backup an toàn trước khi chạy)." },
           target: { type: "string", description: "Muc tieu: 'dead', 'duplicate', hoac 'all'" },
-          file_path: { type: "string", description: "BAT BUOC la duong dan TUYET DOI toi file can don dep tren local (vd: d:\\laragon\\www\\pacific\\bundle\\css\\style.scss)" }
+          file_path: { type: "string", description: "BAT BUOC la duong dan TUYET DOI toi file can don dep tren local (vd: d:\\laragon\\www\\pacific\\bundle\\css\\style.scss)" },
+          dry_run: { type: "boolean", description: "Neu true: CHI hien thi danh sach se xoa (preview diff), KHONG ghi file. Neu false: thuc thi xoa that. MAC DINH: true. LUON dung true lan dau, chi chuyen sang false khi nguoi dung da xem va dong y voi preview." },
+          skip_fix: { type: "boolean", description: "Neu true: Bo qua viec sua file, chi tra ve ket qua phan tich (dead_items + duplicates) de nguoi dung tu quyet dinh. Dung khi nguoi dung muon tu xu ly hoac khong muon AI can thiep vao file." }
         },
         required: ["action", "target", "file_path"]
       }
@@ -483,7 +485,41 @@ const originalHandler = async (request) => {
 
     if (name === "cleanup_code") {
       try {
-        const scriptPath = path.join(__dirname, '../backend/parsers/cleanup_code.js').replace(/\\/g, '/');
+        // --- skip_fix: Chỉ trả về kết quả phân tích, KHÔNG động vào file ---
+        if (args.skip_fix === true) {
+          let currentDir = path.dirname(args.file_path);
+          let projectRoot = null;
+          while (currentDir !== path.parse(currentDir).root) {
+            if (fs.existsSync(path.join(currentDir, '.mcp'))) { projectRoot = currentDir; break; }
+            currentDir = path.dirname(currentDir);
+          }
+          const reportPath = projectRoot
+            ? path.join(projectRoot, '.mcp', 'css_report.json')
+            : path.join(__dirname, 'css_report.json');
+          if (!fs.existsSync(reportPath)) {
+            return text(`[skip_fix] Chưa có báo cáo phân tích. Hãy chạy analyze_css trước để tạo report, sau đó gọi lại cleanup_code với skip_fix=true.`);
+          }
+          const report = JSON.parse(fs.readFileSync(reportPath, 'utf-8'));
+          let res = `[SKIP FIX - Chi xem ket qua, KHONG sua file]\n\n`;
+          res += `File: ${report.file || args.file_path}\n`;
+          res += `Tong so Classes: ${report.total_classes_found || 0}\n\n`;
+          res += `>> DEAD CSS (${report.dead_items?.length || 0} muc):\n`;
+          (report.dead_items || []).slice(0, 100).forEach(i => {
+            res += `  - [${i.type}] .${i.name} (Line ${i.line}) | ${i.selector}\n`;
+          });
+          res += `\n>> DUPLICATES (${report.duplicates?.length || 0} muc):\n`;
+          (report.duplicates || []).slice(0, 50).forEach(d => {
+            if (d.type === 'rule') {
+              res += `  - [RULE] "${d.selector}" dinh nghia lan 1 tai Line ${d.line}, lan 2 tai Line ${d.duplicateLine}\n`;
+            } else {
+              res += `  - [DECL] prop [${d.prop}] lap tai Line ${d.line} | ${d.selector}\n`;
+            }
+          });
+          res += `\nBan co the tu xu ly hoac goi lai cleanup_code voi skip_fix=false de AI thuc thi.`;
+          return text(res);
+        }
+
+        const scriptPath = path.join(__dirname, 'cleanup_code.js').replace(/\\/g, '/');
 
         let currentDir = path.dirname(args.file_path);
         let projectRoot = null;
@@ -502,12 +538,20 @@ const originalHandler = async (request) => {
         const safeFilePath = validatePath(args.file_path, projectRoot);
         const safeReportPath = validatePath(reportPath, projectRoot);
 
+        // --- dry_run: mặc định true — chỉ preview, KHÔNG ghi file ---
+        const isDryRun = args.dry_run !== false; // default true nếu không truyền
+        const dryRunFlag = isDryRun ? '--dry-run' : '--execute';
+
         return new Promise((resolve) => {
-          execFile("node", [scriptPath, args.action, args.target, safeFilePath, safeReportPath], (error, stdout, stderr) => {
+          execFile("node", [scriptPath, args.action, args.target, safeFilePath, safeReportPath, dryRunFlag], (error, stdout, stderr) => {
             if (error) {
               resolve(text(`Lỗi khi dọn dẹp mã: ${error.message}\n${stderr}`));
             } else {
-              resolve(text(stdout));
+              let out = stdout;
+              if (isDryRun) {
+                out = `[DRY RUN - Preview only, KHONG co gi bi thay doi]\n\n${out}\n\nNeu dong y, goi lai cleanup_code voi dry_run=false de thuc thi that.`;
+              }
+              resolve(text(out));
             }
           });
         });
@@ -707,6 +751,10 @@ const originalHandler = async (request) => {
 
         // 1. Duyệt mảng các file thay đổi
         for (const change of changes) {
+            if (typeof change !== 'object' || change === null || !change.file_path) {
+                return text(`[deploy_files] LỖI CÚ PHÁP: Bạn đã truyền dữ liệu sai. Mỗi mục trong mảng 'changes' phải là một ĐỐI TƯỢNG (Object) chứa thuộc tính 'file_path'. Ví dụ: [{"action": "edit", "file_path": "D:/laragon/..."}]. Dữ liệu sai hiện tại: ${JSON.stringify(change)}`);
+            }
+
             const absPath = change.file_path.replace(/\\/g, '/');
             const action = change.action || 'edit';
             let base64Content = "";
