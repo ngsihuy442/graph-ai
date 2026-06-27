@@ -267,7 +267,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
     },
     {
       name: "deploy_files",
-      description: "Đồng bộ HÀNG LOẠT file (thêm/sửa/xóa) lên host trong 1 lần gọi. GỌI ĐÚNG 1 LẦN VÀO CUỐI TASK.",
+      description: "Đồng bộ HÀNG LOẠT file (thêm/sửa/xóa) lên host. BẠN PHẢI LƯU CODE XUỐNG ĐĨA CỨNG LOCAL TRƯỚC KHI GỌI TOOL NÀY, tool sẽ tự đọc trực tiếp từ ổ cứng.",
       inputSchema: {
         type: "object",
         properties: {
@@ -278,8 +278,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
               type: "object",
               properties: {
                 action: { type: "string", enum: ["edit", "create", "delete"] },
-                file_path: { type: "string", description: "Đường dẫn tuyệt đối local" },
-                content: { type: "string", description: "Bỏ trống nếu action='delete'. NẾU LÀ EDIT/CREATE, BẮT BUỘC TRUYỀN NỘI DUNG FILE ĐÃ SỬA VÀO ĐÂY (dạng string thường, server sẽ tự chuyển base64)." }
+                file_path: { type: "string", description: "Đường dẫn tuyệt đối local (Tool tự động đọc nội dung file từ đĩa cứng)" }
               },
               required: ["action", "file_path"]
             }
@@ -734,17 +733,11 @@ const originalHandler = async (request) => {
             // Đọc nội dung file từ local (nếu không phải là xóa file)
             if (action !== 'delete') {
                 if (!fs.existsSync(absPath)) {
-                    // Nếu là action 'create' nhưng file vật lý chưa kịp tạo, ta lấy content Agent gửi xuống
-                    if (change.content) {
-                        base64Content = Buffer.from(change.content).toString('base64');
-                    } else {
-                        return text(`[deploy_files] Loi: File khong ton tai o local va khong co noi dung truyen vao: ${absPath}`);
-                    }
-                } else {
-                    // Đọc nội dung file vật lý (Cách an toàn nhất, tránh mất code do Agent ngắt dòng)
-                    const fileBytes = fs.readFileSync(absPath);
-                    base64Content = fileBytes.toString('base64');
+                    return text(`[deploy_files] Lỗi: File không tồn tại ở local, bạn phải tạo hoặc lưu file xuống đĩa cứng trước khi deploy: ${absPath}`);
                 }
+                // Đọc nội dung file vật lý (Cách an toàn nhất, 100% tự động)
+                const fileBytes = fs.readFileSync(absPath);
+                base64Content = fileBytes.toString('base64');
             }
 
             processedChanges.push({
