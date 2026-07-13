@@ -9,15 +9,29 @@ import { execFile } from 'child_process';
 // process.env.NODE_TLS_REJECT_UNAUTHORIZED removed for security
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const cacheDir = path.join(__dirname, 'cache');
+const contextCacheDir = path.join(cacheDir, 'context_cache');
+fs.mkdirSync(contextCacheDir, { recursive: true });
+const promptBudgetPath = path.join(cacheDir, 'prompt_budget.json');
+if (!fs.existsSync(promptBudgetPath)) {
+  fs.writeFileSync(promptBudgetPath, JSON.stringify({
+    max_context_tokens: 3000,
+    max_source_lines: 160,
+    max_symbols: 30,
+    max_neighbors_per_node: 10
+  }, null, 2), 'utf8');
+}
 
 const metrics = {
   tool_calls: {},
   execution_times: [],
-  errors: []
+  errors: [],
+  cache_hits: 0,
+  cache_misses: 0
 };
 setInterval(() => {
   try {
-    fs.writeFileSync(path.join(__dirname, 'metrics.json'), JSON.stringify(metrics, null, 2));
+    fs.writeFileSync(path.join(cacheDir, 'tool_metrics.json'), JSON.stringify(metrics, null, 2));
   } catch (e) {}
 }, 60000);
 
@@ -50,6 +64,68 @@ function getConfig(projectRoot = null) {
   const configPath = projectRoot ? path.join(projectRoot, '.mcp', '.antigravity') : path.join(__dirname, '.antigravity');
   if (!fs.existsSync(configPath)) return null;
   return readJSONFile(configPath);
+}
+
+function writeCache(name, data) {
+  fs.mkdirSync(cacheDir, { recursive: true });
+  fs.writeFileSync(path.join(cacheDir, name), JSON.stringify(data, null, 2), 'utf8');
+}
+
+function readCache(name) {
+  const file = path.join(cacheDir, name);
+  if (!fs.existsSync(file)) return null;
+  return readJSONFile(file);
+}
+
+function cacheKey(payload) {
+  return Buffer.from(JSON.stringify(payload)).toString('base64url').slice(0, 160);
+}
+
+function endpointUrl(endpoint, params = {}) {
+  const cfg = getConfig();
+  if (!cfg || !cfg.api_url || !cfg.token) throw new Error('Missing .mcp/.antigravity api_url/token');
+  const base = cfg.api_url.replace(/\/export-api.*$/, '');
+  const url = new URL(`${base}/${endpoint}`);
+  url.searchParams.set('token', cfg.token);
+  url.searchParams.set('user_id', cfg.user_id || '');
+  for (const [k, v] of Object.entries(params)) {
+    if (v !== undefined && v !== null && v !== '') url.searchParams.set(k, v);
+  }
+  return url.toString();
+}
+
+async function fetchHostTool(endpoint, params = {}, options = {}) {
+  const useCache = options.cache !== false;
+  const key = `${endpoint}_${cacheKey(params)}.json`;
+  const cacheName = endpoint === 'context-pack' ? path.join('context_cache', key) : key;
+  if (useCache) {
+    const cached = readCache(cacheName);
+    if (cached && (!options.graphHash || cached.graph_hash === options.graphHash || cached.project?.graph_hash === options.graphHash)) {
+      metrics.cache_hits++;
+      return { ...cached, cache: 'hit' };
+    }
+  }
+
+  metrics.cache_misses++;
+  const res = await fetch(endpointUrl(endpoint, params));
+  const data = await res.json();
+  if (data.status === 'success' && useCache) {
+    writeCache(cacheName, data);
+  }
+  return { ...data, cache: 'miss' };
+}
+
+async function getManifest(projectId = null) {
+  const cfg = getConfig();
+  const id = projectId || cfg?.project_id || 'latest';
+  const cached = readCache('manifest.json');
+  if (cached && (cached.project_id == id || id === 'latest')) {
+    metrics.cache_hits++;
+    return { ...cached, cache: 'hit' };
+  }
+  const data = await fetchHostTool('manifest', { id }, { cache: false });
+  if (data.status === 'success') writeCache('manifest.json', data);
+  return data;
 }
 
 // Hàm hỗ trợ quét tất cả các file trong thư mục (bỏ qua các thư mục rác)
@@ -306,21 +382,36 @@ const originalHandler = async (request) => {
     }
 
     if (name === "search_symbol") {
-      const { nodes, projectName, projectId } = await fetchGraphFromHost(args.project_id);
-      const kw = (args.keyword || '').toLowerCase();
-      const matches = nodes.filter(n => (n.label || '').toLowerCase().includes(kw) || (n.id || '').toLowerCase().includes(kw));
-      if (!matches.length) return text(`Khong tim thay '${args.keyword}' trong ${projectName}.`);
-      let res = `Ket qua cho '${args.keyword}' (#${projectId}) - Tim thay ${matches.length} muc:\n\n`;
-      const limit = 50;
-      matches.slice(0, limit).forEach(n => { res += `[${(n.type || '?').toUpperCase()}] ${n.id} @ ${n.file}\n`; });
-      if (matches.length > limit) {
-        res += `\n... (Van con ${matches.length - limit} ket qua khac duoc an bot. Hay thu hep tu khoa).`;
-      }
+      const cfg = getConfig();
+      const data = await fetchHostTool('search-symbol', {
+        id: args.project_id || cfg?.project_id || 'latest',
+        keyword: args.keyword,
+        type: args.type || '',
+        limit: args.limit || 30
+      });
+      const matches = data.symbols || [];
+      if (!matches.length) return text(`Khong tim thay '${args.keyword}'. cache=${data.cache}`);
+      let res = `Ket qua bounded cho '${args.keyword}' (#${data.project_id}) cache=${data.cache} - ${matches.length} muc:\n\n`;
+      matches.slice(0, 30).forEach(n => { res += `[${(n.type || '?').toUpperCase()}] ${n.id} @ ${n.file}:${n.line || 1}\n`; });
       return text(res);
     }
 
     if (name === "search_full_text") {
       const queryKeyword = args.keyword || args.Query;
+      if (queryKeyword) {
+        const cfg = getConfig();
+        const data = await fetchHostTool('search-text', {
+          id: args.project_id || cfg?.project_id || 'latest',
+          keyword: queryKeyword,
+          file_extension: args.file_extension || '',
+          limit: args.limit || 30
+        });
+        const matches = data.matches || [];
+        if (matches.length === 0) return text(`Khong tim thay '${queryKeyword}'. cache=${data.cache}`);
+        let boundedRes = `Ket qua full-text bounded cho '${queryKeyword}' cache=${data.cache}:\n\n`;
+        matches.slice(0, 30).forEach(m => { boundedRes += `- ${m.file} (Line ${m.line}): ${(m.snippet || '').substring(0, 180)}\n`; });
+        return text(boundedRes);
+      }
       if (!queryKeyword) {
         return text("Lỗi: Thiếu tham số 'keyword' hoặc 'Query' để tìm kiếm.");
       }
@@ -370,6 +461,16 @@ const originalHandler = async (request) => {
     }
 
     if (name === "get_context") {
+      const cfg = getConfig();
+      const data = await fetchHostTool('context-pack', {
+        id: args.project_id || cfg?.project_id || 'latest',
+        node_id: args.node_id,
+        prompt: args.prompt || args.node_id,
+        max_context_tokens: 3000,
+        max_symbols: 30,
+        max_neighbors_per_node: 10
+      });
+      return text(`Context pack cache=${data.cache}, estimated_tokens=${data.estimated_tokens || '?'}\n\n${JSON.stringify(data, null, 2)}`);
       const { nodes, edges, projectName, projectId } = await fetchGraphFromHost(args.project_id);
       const node = nodes.find(n => n.id === args.node_id);
       if (!node) return text(`Khong thay node ${args.node_id}`);
@@ -382,6 +483,13 @@ const originalHandler = async (request) => {
     }
 
     if (name === "analyze_impact") {
+      const cfg = getConfig();
+      const data = await fetchHostTool('impact', {
+        id: args.project_id || cfg?.project_id || 'latest',
+        node_id: args.node_id,
+        max_neighbors: args.max_neighbors || 30
+      });
+      return text(`Impact cache=${data.cache}\n\n${JSON.stringify(data, null, 2)}`);
       const { edges, projectName } = await fetchGraphFromHost(args.project_id);
       const incoming = edges.filter(e => e.target === args.node_id);
       let res = `Impact [${args.node_id}] in ${projectName}:\n`;
@@ -394,6 +502,14 @@ const originalHandler = async (request) => {
     if (name === "compare_projects") {
       const cfg = getConfig();
       const pidA = args.project_a || cfg?.project_id || 'latest';
+      const data = await fetchHostTool('compare', {
+        id: pidA,
+        project_b: args.project_b,
+        filter_type: args.filter_type || '',
+        limit: args.limit || 50,
+        offset: args.offset || 0
+      });
+      return text(`Compare #${pidA} vs #${args.project_b} cache=${data.cache}\n\n${JSON.stringify(data, null, 2)}`);
       const [dataA, dataB] = await Promise.all([fetchGraphFromHost(pidA), fetchGraphFromHost(args.project_b)]);
       const idsA = new Set(dataA.nodes.map(n => n.id));
       let diff = dataB.nodes.filter(n => !idsA.has(n.id));
@@ -405,6 +521,24 @@ const originalHandler = async (request) => {
 
     if (name === "get_symbol_source") {
       const cfg = getConfig();
+      const search = await fetchHostTool('search-symbol', {
+        id: args.project_id || cfg?.project_id || 'latest',
+        keyword: args.node_id,
+        limit: 1
+      });
+      const foundNode = (search.symbols || [])[0];
+      if (!foundNode || !foundNode.file) return text(`Khong tim thay symbol '${args.node_id}' hoac thong tin file.`);
+      const sourceData = await fetchHostTool('code-slice', {
+        id: args.project_id || cfg?.project_id || 'latest',
+        file: foundNode.file,
+        line: foundNode.line || 1,
+        end_line: foundNode.endLine || '',
+        max_lines: args.max_lines || 160
+      });
+      if (sourceData.status === "success") {
+        return text(`--- SOURCE: ${sourceData.file} (Line ${sourceData.startLine}-${sourceData.endLine}) cache=${sourceData.cache} ---\n${sourceData.code}\n--- END ---`);
+      }
+      return text(`Loi tu host: ${sourceData.message}`);
       const { nodes, projectName, projectId } = await fetchGraphFromHost(args.project_id);
       const node = nodes.find(n => n.id === args.node_id);
       if (!node || !node.file) return text(`Khong tim thay symbol '${args.node_id}' hoac thong tin file.`);
@@ -837,10 +971,12 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     metrics.execution_times.push({ tool: name, duration, timestamp: Date.now() });
     metrics.tool_calls[name] = (metrics.tool_calls[name] || 0) + 1;
     if (metrics.execution_times.length > 500) metrics.execution_times.shift();
+    writeCache('tool_metrics.json', metrics);
     return res;
   } catch (e) {
     metrics.errors.push({ tool: name, error: e.message, timestamp: Date.now() });
     if (metrics.errors.length > 500) metrics.errors.shift();
+    writeCache('tool_metrics.json', metrics);
     logger.error(`Tool error: ${name}`, { error: e.message, stack: e.stack });
     return text(`Error: ${e.message}`);
   }
